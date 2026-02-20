@@ -546,7 +546,7 @@ export class GenerativeEngine {
         ctx.globalAlpha = 0.6 + p1.volume * 0.4;
         ctx.strokeStyle = `hsl(${p1.hue}, ${p1.sat}%, ${p1.light}%)`;
         ctx.lineWidth = p1.size;
-        ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = p1.size * 3;
+        ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = p1.size * 0.8;
         ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
       }
     }
