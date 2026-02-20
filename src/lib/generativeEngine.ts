@@ -104,11 +104,11 @@ export class GenerativeEngine {
       this.framesSinceSpeaking = 0;
       const speedMul = this.params?.voiceCursorSpeed ?? 1;
       const speed = (1.5 + features.volume * 6) * speedMul;
-      // Pitch drives vertical direction: high pitch → upward, low pitch → downward
+      // Pitch drives horizontal direction: high pitch → left, low pitch → right
       const pitchNorm = Math.max(0, Math.min(1, (features.pitch - 80) / 500));
       const pitchBias = (pitchNorm - 0.5) * -speed * 1.8;
-      this.cursorX += Math.sin(this.time * 0.43 + this.seedX) * speed + Math.sin(this.time * 1.1 + this.seedX * 2) * speed * 0.3 + Math.cos(this.time * 0.17) * speed * 0.5;
-      this.cursorY += Math.cos(this.time * 0.37 + this.seedY) * speed * 0.4 + pitchBias;
+      this.cursorX += Math.sin(this.time * 0.43 + this.seedX) * speed * 0.4 + pitchBias;
+      this.cursorY += Math.cos(this.time * 0.37 + this.seedY) * speed + Math.cos(this.time * 0.9 + this.seedY * 2) * speed * 0.3 + Math.sin(this.time * 0.21) * speed * 0.5;
       const m = 60;
       if (this.cursorX < m) this.cursorX += (m - this.cursorX) * 0.1;
       if (this.cursorX > this.canvas.width - m) this.cursorX -= (this.cursorX - (this.canvas.width - m)) * 0.1;
