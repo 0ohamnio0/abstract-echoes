@@ -746,7 +746,7 @@ export class GenerativeEngine {
     return this.composited().toDataURL('image/png');
   }
 
-  toPortraitDataURL(w = 1080, h = 1920): string {
+  toPortraitDataURL(w = 1080, h = 2340): string {
     const src = this.composited();
     const out = document.createElement('canvas');
     out.width = w; out.height = h;
