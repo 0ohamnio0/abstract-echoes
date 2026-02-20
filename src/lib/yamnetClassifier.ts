@@ -38,6 +38,8 @@ export class YamnetClassifier {
   private lastResult: SoundType = 'silence';
   private confidence = 0;
   private loading = false;
+  scoreThreshold = 0.05;
+  maxResults = 10;
 
   async init(): Promise<void> {
     if (this.ready || this.loading) return;
@@ -62,8 +64,8 @@ export class YamnetClassifier {
         baseOptions: {
           modelAssetPath: MODEL_URL,
         },
-        maxResults: 10,
-        scoreThreshold: 0.05,
+        maxResults: this.maxResults,
+        scoreThreshold: this.scoreThreshold,
       });
       this.ready = true;
       console.log('[YAMNet] Model loaded successfully');

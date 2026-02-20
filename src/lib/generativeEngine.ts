@@ -1,4 +1,5 @@
 import { AudioFeatures, SoundType } from './audioAnalyzer';
+import { ParamValues } from './tuningParams';
 
 const NEON_COLORS = [
   [330, 100, 65], [180, 100, 50], [120, 100, 55], [25, 100, 55],
@@ -54,6 +55,9 @@ export class GenerativeEngine {
   private framesSinceSpeaking = 0;
   private lastSoundType: SoundType = 'silence';
 
+  // Tuning params (set externally)
+  params: ParamValues | null = null;
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
@@ -81,7 +85,8 @@ export class GenerativeEngine {
 
     if (features.isSpeaking) {
       this.framesSinceSpeaking = 0;
-      const speed = 1.5 + features.volume * 6;
+      const speedMul = this.params?.voiceCursorSpeed ?? 1;
+      const speed = (1.5 + features.volume * 6) * speedMul;
       this.cursorX += Math.sin(this.time * 0.43 + this.seedX) * speed + Math.sin(this.time * 1.1 + this.seedX * 2) * speed * 0.3 + Math.cos(this.time * 0.17 + features.pitch * 0.001) * speed * 0.5;
       this.cursorY += Math.cos(this.time * 0.37 + this.seedY) * speed + Math.cos(this.time * 0.9 + this.seedY * 2) * speed * 0.3 + Math.sin(this.time * 0.21 + features.pitch * 0.001) * speed * 0.5;
       const m = 60;
@@ -123,7 +128,15 @@ export class GenerativeEngine {
   // ═══════════════════════════════════════════
   private onVoice(f: AudioFeatures) {
     const [h, s, l] = this.pickVoiceColor(f);
-    while (this.activeFlows.length < 3) {
+    const p = this.params;
+    const flowCount = p?.voiceFlowCount ?? 3;
+    const lineSizeMul = p?.voiceLineSize ?? 1;
+    const stippleProb = p?.voiceStippleProb ?? 0.12;
+    const stippleSize = p?.voiceStippleSize ?? 15;
+    const nebulaProb = p?.voiceNebulaProb ?? 0.03;
+    const spiralProb = p?.voiceSpiralProb ?? 0.008;
+
+    while (this.activeFlows.length < flowCount) {
       const style: FlowLine['style'] = this.activeFlows.length === 0 ? 'smooth' : this.activeFlows.length === 1 ? 'dotted' : 'glow';
       this.activeFlows.push({ points: [], life: 1, style });
     }
@@ -133,11 +146,11 @@ export class GenerativeEngine {
       const od = 10 + fi * 15 + f.volume * 30;
       const px = this.cursorX + Math.cos(oa) * od;
       const py = this.cursorY + Math.sin(oa) * od;
-      flow.points.push({ x: px, y: py, hue: (h + fi * 40) % 360, sat: s, light: l, size: 1 + f.volume * 6 + f.bass * 4, volume: f.volume });
+      flow.points.push({ x: px, y: py, hue: (h + fi * 40) % 360, sat: s, light: l, size: (1 + f.volume * 6 + f.bass * 4) * lineSizeMul, volume: f.volume });
 
-      if (Math.random() < f.volume * 0.12 && fi === 0) this.drawStipple(px + (Math.random() - 0.5) * 40, py + (Math.random() - 0.5) * 40, h, s, l, 15 + f.volume * 50, 20 + Math.floor(f.volume * 60));
-      if (Math.random() < 0.008 && fi === 0) this.drawSpiral(px, py, h, s, l, 25 + f.volume * 50);
-      if (Math.random() < f.volume * 0.03) this.drawNebula(px + (Math.random() - 0.5) * 60, py + (Math.random() - 0.5) * 60, (h + fi * 40) % 360, s, l, 30 + f.volume * 60);
+      if (Math.random() < f.volume * stippleProb && fi === 0) this.drawStipple(px + (Math.random() - 0.5) * 40, py + (Math.random() - 0.5) * 40, h, s, l, stippleSize + f.volume * 50, 20 + Math.floor(f.volume * 60));
+      if (Math.random() < spiralProb && fi === 0) this.drawSpiral(px, py, h, s, l, 25 + f.volume * 50);
+      if (Math.random() < f.volume * nebulaProb) this.drawNebula(px + (Math.random() - 0.5) * 60, py + (Math.random() - 0.5) * 60, (h + fi * 40) % 360, s, l, 30 + f.volume * 60);
     }
   }
 
@@ -148,14 +161,20 @@ export class GenerativeEngine {
     const cx = this.cursorX + (Math.random() - 0.5) * 120;
     const cy = this.cursorY + (Math.random() - 0.5) * 120;
     const [h, s, l] = this.pick(SNAP_PALETTE);
+    const p = this.params;
+    const starSize = p?.snapStarburstSize ?? 40;
+    const ringCount = p?.snapRingCount ?? 2;
+    const shardCount = p?.snapShardCount ?? 12;
+    const stpSize = p?.snapStippleSize ?? 55;
 
     // Central flash
-    this.bursts.push({ x: cx, y: cy, hue: h, sat: s, light: l, size: 40 + f.volume * 60, life: 1, type: 'starburst', vx: 0, vy: 0 });
+    this.bursts.push({ x: cx, y: cy, hue: h, sat: s, light: l, size: starSize + f.volume * 60, life: 1, type: 'starburst', vx: 0, vy: 0 });
     // Expanding rings
-    this.bursts.push({ x: cx, y: cy, hue: h, sat: s, light: l, size: 5, life: 1, type: 'ring', vx: 0, vy: 0 });
-    this.bursts.push({ x: cx, y: cy, hue: (h + 40) % 360, sat: s, light: l, size: 3, life: 1.2, type: 'ring', vx: 0, vy: 0 });
+    for (let ri = 0; ri < ringCount; ri++) {
+      this.bursts.push({ x: cx, y: cy, hue: (h + ri * 40) % 360, sat: s, light: l, size: 5 - ri * 2, life: 1 + ri * 0.2, type: 'ring', vx: 0, vy: 0 });
+    }
     // Ice shards radiating outward
-    const n = 12 + Math.floor(Math.random() * 8);
+    const n = shardCount + Math.floor(Math.random() * 8);
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2 + Math.random() * 0.3;
       const sp = 4 + Math.random() * 7;
@@ -163,7 +182,7 @@ export class GenerativeEngine {
       this.bursts.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, hue: sh, sat: ss, light: sl, size: 5 + Math.random() * 15, life: 1, type: 'shard' });
     }
     // Fine crystalline stipple
-    this.drawStipple(cx, cy, h, s, 90, 55, 80);
+    this.drawStipple(cx, cy, h, s, 90, stpSize, 80);
   }
 
   // ═══════════════════════════════════════════
@@ -173,27 +192,31 @@ export class GenerativeEngine {
     const cx = this.cursorX + (Math.random() - 0.5) * 150;
     const cy = this.cursorY + (Math.random() - 0.5) * 150;
     const [h, s, l] = this.pick(CLAP_PALETTE);
+    const p = this.params;
+    const ringCount = p?.clapRingCount ?? 3;
+    const glowRadius = p?.clapGlowRadius ?? 60;
+    const baseSplatCount = p?.clapSplatCount ?? 15;
 
     // Multiple concentric shockwave rings
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < ringCount; i++) {
       this.bursts.push({ x: cx, y: cy, hue: (h + i * 20) % 360, sat: s, light: l, size: 3 + i * 2, life: 1 + i * 0.15, type: 'ring', vx: 0, vy: 0 });
     }
 
     // Warm central glow
     const ctx = this.accCtx;
     ctx.save();
-    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 60 + f.volume * 80);
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowRadius + f.volume * 80);
     grad.addColorStop(0, `hsla(${h}, ${s}%, 95%, 0.6)`);
     grad.addColorStop(0.3, `hsla(${h}, ${s}%, ${l}%, 0.3)`);
     grad.addColorStop(1, `hsla(${h}, ${s}%, ${l}%, 0)`);
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.arc(cx, cy, 60 + f.volume * 80, 0, Math.PI * 2);
+    ctx.arc(cx, cy, glowRadius + f.volume * 80, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
     // Paint splatter — irregular blobs radiating out
-    const splatCount = 15 + Math.floor(f.volume * 20);
+    const splatCount = baseSplatCount + Math.floor(f.volume * 20);
     ctx.save();
     for (let i = 0; i < splatCount; i++) {
       const a = Math.random() * Math.PI * 2;
@@ -231,15 +254,20 @@ export class GenerativeEngine {
     const ctx = this.accCtx;
     const cx = this.cursorX + (Math.random() - 0.5) * 100;
     const cy = this.cursorY + (Math.random() - 0.5) * 100;
+    const p = this.params;
+    const baseBubbleCount = p?.laughBubbleCount ?? 3;
+    const baseBubbleSize = p?.laughBubbleSize ?? 8;
+    const dotCount = p?.laughDotCount ?? 10;
+    const spiralProb = p?.laughSpiralProb ?? 0.15;
 
     // Bouncing bubbles
-    const bubbleCount = 3 + Math.floor(f.volume * 6);
+    const bubbleCount = baseBubbleCount + Math.floor(f.volume * 6);
     ctx.save();
     for (let i = 0; i < bubbleCount; i++) {
       const [h, s, l] = this.pick(LAUGH_PALETTE);
       const bx = cx + (Math.random() - 0.5) * 120;
       const by = cy + (Math.random() - 0.5) * 120;
-      const r = 8 + Math.random() * 25 + f.volume * 15;
+      const r = baseBubbleSize + Math.random() * 25 + f.volume * 15;
 
       // Filled bubble with gradient
       ctx.globalAlpha = 0.5 + Math.random() * 0.3;
@@ -266,7 +294,7 @@ export class GenerativeEngine {
 
     // Tiny bouncing dots that scatter upward
     ctx.save();
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < dotCount; i++) {
       const [h, s, l] = this.pick(LAUGH_PALETTE);
       const dx = cx + (Math.random() - 0.5) * 160;
       const dy = cy + (Math.random() - 0.5) * 160 - f.volume * 40;
@@ -281,7 +309,7 @@ export class GenerativeEngine {
     ctx.restore();
 
     // Occasional playful mini-spiral
-    if (Math.random() < 0.15) {
+    if (Math.random() < spiralProb) {
       const [h, s, l] = this.pick(LAUGH_PALETTE);
       this.drawSpiral(cx + (Math.random() - 0.5) * 80, cy + (Math.random() - 0.5) * 80, h, s, l, 15 + f.volume * 25);
     }
