@@ -189,8 +189,10 @@ export class GenerativeEngine {
   //  CLAP → warm shockwave + scattered splatter + concentric rings
   // ═══════════════════════════════════════════
   private onClap(f: AudioFeatures) {
-    const cx = this.cursorX + (Math.random() - 0.5) * 150;
-    const cy = this.cursorY + (Math.random() - 0.5) * 150;
+    // Random position anywhere on canvas (with margin)
+    const margin = 100;
+    const cx = margin + Math.random() * (this.canvas.width - margin * 2);
+    const cy = margin + Math.random() * (this.canvas.height - margin * 2);
     const [h, s, l] = this.pick(CLAP_PALETTE);
     const p = this.params;
     const ringCount = p?.clapRingCount ?? 3;
@@ -543,6 +545,48 @@ export class GenerativeEngine {
     this.ctx.globalAlpha = 0.3;
     this.ctx.drawImage(this.glowCanvas, 0, 0, this.canvas.width, this.canvas.height);
     this.ctx.restore();
+
+    // Idle wave at the bottom
+    this.drawIdleWave();
+  }
+
+  private drawIdleWave() {
+    const ctx = this.ctx;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    const waveHeight = 40;
+    const baseY = h - 60;
+
+    ctx.save();
+    // Draw 3 layered waves with different speeds and colors
+    const waves = [
+      { speed: 0.3, freq: 0.003, amp: waveHeight, color: [270, 60, 40], alpha: 0.12 },
+      { speed: 0.5, freq: 0.005, amp: waveHeight * 0.7, color: [200, 80, 45], alpha: 0.10 },
+      { speed: 0.8, freq: 0.008, amp: waveHeight * 0.4, color: [330, 70, 50], alpha: 0.08 },
+    ];
+
+    for (const wave of waves) {
+      const [wh, ws, wl] = wave.color;
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      for (let x = 0; x <= w; x += 4) {
+        const y = baseY
+          + Math.sin(x * wave.freq + this.time * wave.speed) * wave.amp
+          + Math.sin(x * wave.freq * 1.7 + this.time * wave.speed * 0.6 + 1.3) * wave.amp * 0.4
+          + Math.sin(x * wave.freq * 0.5 + this.time * wave.speed * 1.3 + 2.7) * wave.amp * 0.25;
+        ctx.lineTo(x, y);
+      }
+      ctx.lineTo(w, h);
+      ctx.closePath();
+
+      const grad = ctx.createLinearGradient(0, baseY - wave.amp, 0, h);
+      grad.addColorStop(0, `hsla(${wh}, ${ws}%, ${wl}%, ${wave.alpha})`);
+      grad.addColorStop(0.5, `hsla(${wh}, ${ws}%, ${wl + 10}%, ${wave.alpha * 0.6})`);
+      grad.addColorStop(1, `hsla(${wh}, ${ws}%, ${wl}%, 0)`);
+      ctx.fillStyle = grad;
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   toDataURL(): string {
