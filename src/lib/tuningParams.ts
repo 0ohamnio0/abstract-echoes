@@ -44,8 +44,8 @@ export interface TuningParams {
 export function createDefaultParams(): TuningParams {
   return {
     // Classification
-    yamnetScoreThreshold: { value: 0.05, min: 0.01, max: 0.5, step: 0.01, label: 'YAMNet 점수 임계값' },
-    yamnetMaxResults:     { value: 10,   min: 1,    max: 20,  step: 1,    label: 'YAMNet 최대 결과 수' },
+    yamnetScoreThreshold: { value: 0.04, min: 0.01, max: 0.5, step: 0.01, label: 'YAMNet 점수 임계값' },
+    yamnetMaxResults:     { value: 6,    min: 1,    max: 20,  step: 1,    label: 'YAMNet 최대 결과 수' },
 
     // Voice
     voiceFlowCount:   { value: 3,    min: 1,    max: 8,    step: 1,    label: '흐름 라인 수' },
@@ -57,21 +57,21 @@ export function createDefaultParams(): TuningParams {
     voiceSpiralProb:  { value: 0.008,min: 0,    max: 0.05, step: 0.001,label: '나선 확률' },
 
     // Snap
-    snapStarburstSize: { value: 40, min: 10, max: 120, step: 5, label: '폭발 크기' },
-    snapRingCount:     { value: 2,  min: 1,  max: 5,   step: 1, label: '링 개수' },
-    snapShardCount:    { value: 12, min: 4,  max: 30,  step: 1, label: '파편 개수' },
-    snapStippleSize:   { value: 55, min: 10, max: 120, step: 5, label: '점묘 크기' },
+    snapStarburstSize: { value: 25, min: 10, max: 120, step: 5, label: '폭발 크기' },
+    snapRingCount:     { value: 1,  min: 1,  max: 5,   step: 1, label: '링 개수' },
+    snapShardCount:    { value: 7,  min: 4,  max: 30,  step: 1, label: '파편 개수' },
+    snapStippleSize:   { value: 15, min: 10, max: 120, step: 5, label: '점묘 크기' },
 
     // Clap
-    clapRingCount:  { value: 3,  min: 1,  max: 6,   step: 1, label: '충격파 링 수' },
-    clapGlowRadius: { value: 60, min: 20, max: 150, step: 5, label: '글로우 반경' },
-    clapSplatCount: { value: 15, min: 5,  max: 40,  step: 1, label: '스플래터 수' },
+    clapRingCount:  { value: 1,  min: 1,  max: 6,   step: 1, label: '충격파 링 수' },
+    clapGlowRadius: { value: 20, min: 20, max: 150, step: 5, label: '글로우 반경' },
+    clapSplatCount: { value: 5,  min: 5,  max: 40,  step: 1, label: '스플래터 수' },
 
     // Laugh
-    laughBubbleCount: { value: 3,    min: 1,  max: 10,  step: 1,    label: '버블 기본 개수' },
-    laughBubbleSize:  { value: 8,    min: 2,  max: 30,  step: 1,    label: '버블 기본 크기' },
-    laughDotCount:    { value: 10,   min: 3,  max: 30,  step: 1,    label: '점 개수' },
-    laughSpiralProb:  { value: 0.15, min: 0,  max: 0.5, step: 0.01, label: '나선 확률' },
+    laughBubbleCount: { value: 2,    min: 1,  max: 10,  step: 1,    label: '버블 기본 개수' },
+    laughBubbleSize:  { value: 5,    min: 2,  max: 30,  step: 1,    label: '버블 기본 크기' },
+    laughDotCount:    { value: 6,    min: 3,  max: 30,  step: 1,    label: '점 개수' },
+    laughSpiralProb:  { value: 0.06, min: 0,  max: 0.5, step: 0.01, label: '나선 확률' },
   };
 }
 
