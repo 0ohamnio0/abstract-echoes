@@ -49,7 +49,7 @@ export function createDefaultParams(): TuningParams {
 
     // Voice
     voiceFlowCount:   { value: 3,    min: 1,    max: 8,    step: 1,    label: '흐름 라인 수' },
-    voiceLineSize:    { value: 4,    min: 0.2,  max: 8,    step: 0.1,  label: '라인 굵기 배율' },
+    voiceLineSize:    { value: 2,    min: 0.2,  max: 8,    step: 0.1,  label: '라인 굵기 배율' },
     voiceCursorSpeed: { value: 1,    min: 0.2,  max: 3,    step: 0.1,  label: '커서 이동 속도' },
     voiceStippleProb: { value: 0.12, min: 0,    max: 0.5,  step: 0.01, label: '점묘 확률' },
     voiceStippleSize: { value: 15,   min: 5,    max: 60,   step: 1,    label: '점묘 크기' },

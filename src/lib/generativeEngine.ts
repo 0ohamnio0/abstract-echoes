@@ -148,7 +148,7 @@ export class GenerativeEngine {
     const [h, s, l] = this.pickVoiceColor(f);
     const p = this.params;
     const flowCount = p?.voiceFlowCount ?? 3;
-    const lineSizeMul = p?.voiceLineSize ?? 4;
+    const lineSizeMul = p?.voiceLineSize ?? 2;
     const stippleProb = p?.voiceStippleProb ?? 0.12;
     const stippleSize = p?.voiceStippleSize ?? 15;
     const nebulaProb = p?.voiceNebulaProb ?? 0.03;
