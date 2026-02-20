@@ -18,11 +18,16 @@ export class AudioAnalyzer {
 
   async start(): Promise<void> {
     this.context = new AudioContext();
+    if (this.context.state === 'suspended') {
+      await this.context.resume();
+    }
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const source = this.context.createMediaStreamSource(this.stream);
     this.analyser = this.context.createAnalyser();
     this.analyser.fftSize = 2048;
-    this.analyser.smoothingTimeConstant = 0.8;
+    this.analyser.smoothingTimeConstant = 0.75;
+    this.analyser.minDecibels = -90;
+    this.analyser.maxDecibels = -10;
     source.connect(this.analyser);
     this.frequencyData = new Uint8Array(this.analyser.frequencyBinCount);
     this.waveformData = new Uint8Array(this.analyser.frequencyBinCount);
@@ -67,7 +72,7 @@ export class AudioAnalyzer {
       frequencies: this.frequencyData,
       waveform: this.waveformData,
       pitch,
-      isSpeaking: volume > 0.05,
+      isSpeaking: volume > 0.01,
     };
   }
 
