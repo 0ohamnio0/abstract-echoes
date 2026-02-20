@@ -55,6 +55,8 @@ export class GenerativeEngine {
   private framesSinceSpeaking = 0;
   private lastSoundType: SoundType = 'silence';
   private lastClapTime = 0;
+  private lastSnapTime = 0;
+  private lastLaughTime = 0;
 
   // Tuning params (set externally)
   params: ParamValues | null = null;
@@ -99,9 +101,9 @@ export class GenerativeEngine {
       this.lastSoundType = features.soundType;
 
       switch (features.soundType) {
-        case 'snap': this.onSnap(features); this.endActiveFlows(); break;
-        case 'clap': this.onClapThrottled(features); this.endActiveFlows(); break;
-        case 'laugh': this.onLaugh(features); break;
+        case 'snap': this.onSnapOnce(features); this.endActiveFlows(); break;
+        case 'clap': this.onClapOnce(features); this.endActiveFlows(); break;
+        case 'laugh': this.onLaughOnce(features); break;
         case 'voice': this.onVoice(features); break;
       }
     } else {
@@ -158,9 +160,17 @@ export class GenerativeEngine {
   // ═══════════════════════════════════════════
   //  SNAP → crystalline starburst + ice shards + expanding ring
   // ═══════════════════════════════════════════
+  private onSnapOnce(f: AudioFeatures) {
+    const now = performance.now();
+    if (now - this.lastSnapTime < 300) return;
+    this.lastSnapTime = now;
+    this.onSnap(f);
+  }
+
   private onSnap(f: AudioFeatures) {
-    const cx = this.cursorX + (Math.random() - 0.5) * 120;
-    const cy = this.cursorY + (Math.random() - 0.5) * 120;
+    const margin = 80;
+    const cx = margin + Math.random() * (this.canvas.width - margin * 2);
+    const cy = margin + Math.random() * (this.canvas.height - margin * 2);
     const [h, s, l] = this.pick(SNAP_PALETTE);
     const p = this.params;
     const starSize = p?.snapStarburstSize ?? 40;
@@ -189,8 +199,7 @@ export class GenerativeEngine {
   // ═══════════════════════════════════════════
   //  CLAP → warm shockwave + scattered splatter + concentric rings
   // ═══════════════════════════════════════════
-  private onClapThrottled(f: AudioFeatures) {
-    // Only allow one clap event per 300ms to prevent flooding
+  private onClapOnce(f: AudioFeatures) {
     const now = performance.now();
     if (now - this.lastClapTime < 300) return;
     this.lastClapTime = now;
@@ -261,10 +270,18 @@ export class GenerativeEngine {
   // ═══════════════════════════════════════════
   //  LAUGH → bubbly circles, bouncing dots, joyful spirals
   // ═══════════════════════════════════════════
+  private onLaughOnce(f: AudioFeatures) {
+    const now = performance.now();
+    if (now - this.lastLaughTime < 250) return;
+    this.lastLaughTime = now;
+    this.onLaugh(f);
+  }
+
   private onLaugh(f: AudioFeatures) {
     const ctx = this.accCtx;
-    const cx = this.cursorX + (Math.random() - 0.5) * 100;
-    const cy = this.cursorY + (Math.random() - 0.5) * 100;
+    const margin = 80;
+    const cx = margin + Math.random() * (this.canvas.width - margin * 2);
+    const cy = margin + Math.random() * (this.canvas.height - margin * 2);
     const p = this.params;
     const baseBubbleCount = p?.laughBubbleCount ?? 3;
     const baseBubbleSize = p?.laughBubbleSize ?? 8;
