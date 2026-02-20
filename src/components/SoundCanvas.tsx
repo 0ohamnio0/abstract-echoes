@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { AudioAnalyzer } from '@/lib/audioAnalyzer';
+import { AudioAnalyzer, SoundType } from '@/lib/audioAnalyzer';
 import { GenerativeEngine } from '@/lib/generativeEngine';
 
 const CANVAS_WIDTH = 1900;
@@ -13,6 +13,7 @@ export default function SoundCanvas() {
   const [isActive, setIsActive] = useState(false);
   const [debugVolume, setDebugVolume] = useState(0);
   const [debugSpeaking, setDebugSpeaking] = useState(false);
+  const [debugSoundType, setDebugSoundType] = useState<SoundType>('silence');
   const [sensitivity, setSensitivity] = useState(1.0);
   const [threshold, setThreshold] = useState(0.05);
   const [showSettings, setShowSettings] = useState(false);
@@ -27,6 +28,7 @@ export default function SoundCanvas() {
     if (debugFrameRef.current % 5 === 0) {
       setDebugVolume(features.volume);
       setDebugSpeaking(features.isSpeaking);
+      setDebugSoundType(features.soundType);
     }
 
     animFrameRef.current = requestAnimationFrame(loop);
@@ -199,6 +201,26 @@ export default function SoundCanvas() {
               {debugSpeaking ? '인식 중' : '대기 중'}
             </span>
           </div>
+          {/* Sound type indicator */}
+          {debugSpeaking && debugSoundType !== 'silence' && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-mono tracking-wider px-2 py-0.5 rounded-full border" style={{
+                color: debugSoundType === 'voice' ? 'hsl(180, 100%, 50%)' :
+                       debugSoundType === 'snap' ? 'hsl(195, 100%, 75%)' :
+                       debugSoundType === 'clap' ? 'hsl(25, 100%, 60%)' :
+                       'hsl(300, 80%, 70%)',
+                borderColor: debugSoundType === 'voice' ? 'hsl(180, 100%, 50%)' :
+                       debugSoundType === 'snap' ? 'hsl(195, 100%, 75%)' :
+                       debugSoundType === 'clap' ? 'hsl(25, 100%, 60%)' :
+                       'hsl(300, 80%, 70%)',
+              }}>
+                {debugSoundType === 'voice' ? '🎤 목소리' :
+                 debugSoundType === 'snap' ? '✨ 스냅' :
+                 debugSoundType === 'clap' ? '👏 박수' :
+                 '😄 웃음'}
+              </span>
+            </div>
+          )}
           <div className="w-32 h-1.5 bg-muted rounded-full overflow-hidden">
             <div
               className="h-full rounded-full transition-all duration-75"
@@ -206,13 +228,6 @@ export default function SoundCanvas() {
                 width: `${Math.min(100, debugVolume * 100)}%`,
                 background: debugVolume > threshold ? 'hsl(120, 100%, 55%)' : 'hsl(0, 0%, 30%)',
               }}
-            />
-          </div>
-          {/* Threshold marker */}
-          <div className="w-32 relative h-0">
-            <div
-              className="absolute top-[-10px] w-px h-1.5 bg-primary/60"
-              style={{ left: `${Math.min(100, threshold * 100)}%` }}
             />
           </div>
           <span className="text-[10px] text-muted-foreground/50 font-mono">
