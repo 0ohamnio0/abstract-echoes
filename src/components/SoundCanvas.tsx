@@ -14,6 +14,8 @@ export default function SoundCanvas() {
   const [debugVolume, setDebugVolume] = useState(0);
   const [debugSpeaking, setDebugSpeaking] = useState(false);
   const [debugSoundType, setDebugSoundType] = useState<SoundType>('silence');
+  const [yamnetLabel, setYamnetLabel] = useState('');
+  const [yamnetConfidence, setYamnetConfidence] = useState(0);
   const [sensitivity, setSensitivity] = useState(1.0);
   const [threshold, setThreshold] = useState(0.05);
   const [showSettings, setShowSettings] = useState(false);
@@ -29,6 +31,8 @@ export default function SoundCanvas() {
       setDebugVolume(features.volume);
       setDebugSpeaking(features.isSpeaking);
       setDebugSoundType(features.soundType);
+      setYamnetLabel(features.yamnetLabel || '');
+      setYamnetConfidence(features.yamnetConfidence || 0);
     }
 
     animFrameRef.current = requestAnimationFrame(loop);
@@ -233,6 +237,11 @@ export default function SoundCanvas() {
           <span className="text-[10px] text-muted-foreground/50 font-mono">
             {debugVolume.toFixed(3)} / {threshold.toFixed(3)}
           </span>
+          {yamnetLabel && (
+            <span className="text-[10px] text-muted-foreground/60 font-mono">
+              YAMNet: {yamnetLabel} ({(yamnetConfidence * 100).toFixed(0)}%)
+            </span>
+          )}
         </div>
       )}
 
