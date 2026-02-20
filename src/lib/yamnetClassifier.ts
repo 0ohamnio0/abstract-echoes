@@ -1,9 +1,7 @@
-import { AudioClassifier, FilesetResolver } from '@mediapipe/tasks-audio';
 import type { SoundType } from './audioAnalyzer';
 
 // YAMNet category names → our SoundType mapping
 const CATEGORY_MAP: Record<string, SoundType> = {
-  // Voice/Speech
   'Speech': 'voice',
   'Narration, monologue': 'voice',
   'Conversation': 'voice',
@@ -14,20 +12,14 @@ const CATEGORY_MAP: Record<string, SoundType> = {
   'Male speech, man speaking': 'voice',
   'Whispering': 'voice',
   'Shout': 'voice',
-
-  // Clap
   'Clapping': 'clap',
   'Hands': 'clap',
   'Slap, smack': 'clap',
   'Applause': 'clap',
-
-  // Snap
   'Finger snapping': 'snap',
   'Click': 'snap',
   'Tick': 'snap',
   'Flick': 'snap',
-
-  // Laugh
   'Laughter': 'laugh',
   'Baby laughter': 'laugh',
   'Chuckle, chortle': 'laugh',
@@ -35,11 +27,13 @@ const CATEGORY_MAP: Record<string, SoundType> = {
   'Snicker': 'laugh',
 };
 
-// Categories we care about (for filtering)
 const RELEVANT_CATEGORIES = new Set(Object.keys(CATEGORY_MAP));
 
+const CDN_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-audio/wasm';
+const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/audio_classifier/yamnet/float32/1/yamnet.tflite';
+
 export class YamnetClassifier {
-  private classifier: AudioClassifier | null = null;
+  private classifier: any = null;
   private ready = false;
   private lastResult: SoundType = 'silence';
   private confidence = 0;
@@ -49,13 +43,24 @@ export class YamnetClassifier {
     if (this.ready || this.loading) return;
     this.loading = true;
     try {
-      const audio = await FilesetResolver.forAudioTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-audio/wasm'
-      );
-      this.classifier = await AudioClassifier.createFromOptions(audio, {
+      // Dynamically import to avoid bundler issues
+      const tasksAudio = await import('@mediapipe/tasks-audio');
+      
+      // Try FilesetResolver first, fall back to manual WasmFileset
+      let wasmFileset: any;
+      if (tasksAudio.FilesetResolver) {
+        wasmFileset = await tasksAudio.FilesetResolver.forAudioTasks(CDN_BASE);
+      } else {
+        // Manually construct WasmFileset
+        wasmFileset = {
+          wasmLoaderPath: `${CDN_BASE}/audio_wasm_internal.js`,
+          wasmBinaryPath: `${CDN_BASE}/audio_wasm_internal.wasm`,
+        };
+      }
+
+      this.classifier = await tasksAudio.AudioClassifier.createFromOptions(wasmFileset, {
         baseOptions: {
-          modelAssetPath:
-            'https://storage.googleapis.com/mediapipe-models/audio_classifier/yamnet/float32/1/yamnet.tflite',
+          modelAssetPath: MODEL_URL,
         },
         maxResults: 10,
         scoreThreshold: 0.05,
@@ -73,10 +78,6 @@ export class YamnetClassifier {
     return this.ready;
   }
 
-  /**
-   * Classify a chunk of audio samples (Float32Array, mono, at given sampleRate).
-   * Returns the mapped SoundType and confidence.
-   */
   classify(samples: Float32Array, sampleRate: number): { type: SoundType; confidence: number; rawLabel: string } {
     if (!this.classifier || !this.ready) {
       return { type: 'silence', confidence: 0, rawLabel: '' };
@@ -93,7 +94,6 @@ export class YamnetClassifier {
         return { type: 'silence', confidence: 0, rawLabel: '' };
       }
 
-      // Find the best matching category from our mapping
       for (const cat of categories) {
         const name = cat.categoryName || '';
         if (RELEVANT_CATEGORIES.has(name)) {
@@ -104,12 +104,10 @@ export class YamnetClassifier {
         }
       }
 
-      // If no relevant category found with good score, return silence
       this.lastResult = 'silence';
       this.confidence = 0;
       return { type: 'silence', confidence: 0, rawLabel: categories[0]?.categoryName || '' };
     } catch (e) {
-      // Silently handle errors during classification
       return { type: this.lastResult, confidence: this.confidence, rawLabel: '' };
     }
   }
