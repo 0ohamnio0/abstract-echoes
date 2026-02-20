@@ -70,7 +70,7 @@ export class GenerativeEngine {
   }
 
   private spawnParticles(f: AudioFeatures) {
-    const count = Math.floor(f.volume * 15) + 1;
+    const count = Math.floor(f.volume * 25) + 3;
     const cx = this.canvas.width / 2;
     const cy = this.canvas.height / 2;
 
@@ -90,7 +90,7 @@ export class GenerativeEngine {
         hue: (h + f.pitch * 0.1 + this.colorOffset) % 360,
         sat: s,
         light: l + f.volume * 20,
-        size: type === 'orb' ? (f.bass * 40 + 5) : type === 'spore' ? (f.mid * 15 + 2) : (f.treble * 6 + 1),
+        size: type === 'orb' ? (f.bass * 60 + 15) : type === 'spore' ? (f.mid * 25 + 8) : (f.treble * 10 + 3),
         life: 1,
         maxLife: 1,
         type,
