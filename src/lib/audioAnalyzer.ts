@@ -26,7 +26,8 @@ export class AudioAnalyzer {
   private prevPrevVolume = 0;
   private snapCooldown = 0;
   private volumeHistory: number[] = [];
-  private onsetHistory: boolean[] = []; // track rapid onset pattern for laugh
+  private onsetHistory: boolean[] = [];
+  private volumeDeltaHistory: number[] = [];
 
   sensitivity = 1.0;
   threshold = 0.05;
@@ -97,13 +98,15 @@ export class AudioAnalyzer {
 
     // Volume dynamics
     const volumeDelta = volume - this.prevVolume;
-    const isSuddenOnset = volumeDelta > 0.08;
+    const isSuddenOnset = volumeDelta > 0.03;
     this.prevPrevVolume = this.prevVolume;
     this.prevVolume = volume;
 
-    // Track volume history for pattern detection
+    // Track histories
     this.volumeHistory.push(volume);
     if (this.volumeHistory.length > 30) this.volumeHistory.shift();
+    this.volumeDeltaHistory.push(volumeDelta);
+    if (this.volumeDeltaHistory.length > 30) this.volumeDeltaHistory.shift();
     this.onsetHistory.push(isSuddenOnset && volume > this.threshold);
     if (this.onsetHistory.length > 40) this.onsetHistory.shift();
 
@@ -129,29 +132,50 @@ export class AudioAnalyzer {
     bass: number, mid: number, treble: number,
     centroid: number, flatness: number
   ): SoundType {
-    const isSudden = volumeDelta > 0.1;
+    // Count recent onsets for laugh detection
+    const recentOnsets = this.onsetHistory.slice(-25).filter(Boolean).length;
+    
+    // Check if volume just appeared from near-silence (transient detection)
+    const wasQuiet = this.volumeHistory.length >= 3 && 
+      this.volumeHistory[this.volumeHistory.length - 3] < this.threshold * 1.5;
+    const isTransient = wasQuiet && volumeDelta > 0.04;
 
-    // Count recent onsets in last ~0.5s (30 frames) for laugh detection
-    const recentOnsets = this.onsetHistory.slice(-20).filter(Boolean).length;
-
-    // SNAP: very sharp transient, high frequency, low spectral flatness after
-    if (this.snapCooldown === 0 && isSudden && centroid > 0.35 && treble > mid * 1.5 && volume > 0.1) {
-      this.snapCooldown = 20;
-      return 'snap';
+    // SNAP: sharp transient, tends to have more high-frequency energy
+    // Relaxed: any sharp transient with treble presence
+    if (this.snapCooldown === 0 && isTransient && treble > 0.05 && centroid > 0.25 && volume > this.threshold * 1.5) {
+      // Distinguish from clap: snaps have narrower frequency spread (less flat)
+      if (flatness < 0.35 || treble > mid * 1.2) {
+        this.snapCooldown = 25;
+        return 'snap';
+      }
     }
 
-    // CLAP: sudden broadband noise — high flatness (noise-like), sudden onset
-    if (this.snapCooldown === 0 && isSudden && flatness > 0.3 && volume > 0.1 && centroid > 0.15 && centroid < 0.45) {
-      this.snapCooldown = 15;
+    // CLAP: sudden broadband noise — more spectrally flat than snap
+    if (this.snapCooldown === 0 && isTransient && flatness > 0.15 && volume > this.threshold * 1.5) {
+      this.snapCooldown = 20;
       return 'clap';
     }
 
-    // LAUGH: rapid rhythmic volume oscillations (multiple onsets in short time)
-    if (recentOnsets >= 3 && mid > bass * 0.8 && centroid > 0.1 && centroid < 0.35) {
-      return 'laugh';
+    // Also catch non-transient but sudden loud bursts as clap
+    if (this.snapCooldown === 0 && volumeDelta > 0.06 && flatness > 0.2 && volume > this.threshold * 2) {
+      this.snapCooldown = 20;
+      return 'clap';
     }
 
-    // VOICE: sustained, tonal (low flatness), harmonic structure
+    // LAUGH: multiple rapid volume oscillations
+    if (recentOnsets >= 2 && centroid > 0.08) {
+      // Check for oscillating pattern (up-down-up)
+      const recent = this.volumeDeltaHistory.slice(-15);
+      let oscillations = 0;
+      for (let i = 1; i < recent.length; i++) {
+        if (recent[i] * recent[i - 1] < 0) oscillations++;
+      }
+      if (oscillations >= 3) {
+        return 'laugh';
+      }
+    }
+
+    // VOICE: everything else that's sustained
     return 'voice';
   }
 
