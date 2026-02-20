@@ -1,64 +1,60 @@
 import { AudioFeatures } from './audioAnalyzer';
 
 const NEON_COLORS = [
-  [330, 100, 65],  // hot pink
-  [180, 100, 50],  // cyan
-  [120, 100, 55],  // green
-  [25, 100, 55],   // orange
-  [220, 100, 60],  // blue
-  [300, 100, 60],  // magenta
-  [55, 100, 55],   // yellow
-  [0, 100, 55],    // red
-  [270, 80, 60],   // violet
-  [350, 100, 70],  // coral pink
-  [160, 100, 45],  // teal
-  [40, 100, 60],   // amber
+  [330, 100, 65], [180, 100, 50], [120, 100, 55], [25, 100, 55],
+  [220, 100, 60], [300, 100, 60], [55, 100, 55], [0, 100, 55],
+  [270, 80, 60], [350, 100, 70], [160, 100, 45], [40, 100, 60],
 ];
 
 const SNAP_COLORS = [
-  [45, 100, 75],
-  [195, 100, 70],
-  [0, 0, 95],
-  [280, 80, 75],
-  [160, 100, 65],
+  [45, 100, 75], [195, 100, 70], [0, 0, 95], [280, 80, 75], [160, 100, 65],
 ];
 
-type PType = 'orb' | 'dot' | 'spore' | 'shard' | 'ring' | 'starburst' | 'stipple_cluster' | 'spiral' | 'nebula' | 'filament';
-
-interface Particle {
+interface TrailPoint {
   x: number; y: number;
-  vx: number; vy: number;
   hue: number; sat: number; light: number;
-  size: number; life: number; maxLife: number;
-  type: PType;
-  angle?: number;
-  data?: any;
+  size: number; volume: number;
 }
 
-interface Tendril {
-  points: { x: number; y: number }[];
+interface FlowLine {
+  points: TrailPoint[];
+  life: number;
+  style: 'smooth' | 'dotted' | 'glow';
+}
+
+interface Burst {
+  x: number; y: number;
   hue: number; sat: number; light: number;
-  width: number; life: number;
-  dotted: boolean;
+  size: number; life: number;
+  type: 'starburst' | 'ring' | 'shard' | 'stipple';
+  vx: number; vy: number;
+  data?: any;
 }
 
 export class GenerativeEngine {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-  private particles: Particle[] = [];
-  private tendrils: Tendril[] = [];
-  private time = 0;
-  private seedX: number;
-  private seedY: number;
-  private colorOffset: number;
   private accCanvas: HTMLCanvasElement;
   private accCtx: CanvasRenderingContext2D;
   private glowCanvas: HTMLCanvasElement;
   private glowCtx: CanvasRenderingContext2D;
+
+  private time = 0;
+  private seedX: number;
+  private seedY: number;
+  private colorOffset: number;
   private cursorX: number;
   private cursorY: number;
-  private prevCursorX: number;
-  private prevCursorY: number;
+
+  // Continuous flow state
+  private currentFlow: FlowLine | null = null;
+  private flows: FlowLine[] = [];
+  private bursts: Burst[] = [];
+  private framesSinceSpeaking = 0;
+  private totalDrawn = 0;
+
+  // Multiple concurrent flowing lines for richness
+  private activeFlows: FlowLine[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -66,12 +62,9 @@ export class GenerativeEngine {
     this.seedX = Math.random() * 1000;
     this.seedY = Math.random() * 1000;
     this.colorOffset = Math.random() * 360;
-    this.cursorX = canvas.width / 2;
-    this.cursorY = canvas.height / 2;
-    this.prevCursorX = this.cursorX;
-    this.prevCursorY = this.cursorY;
+    this.cursorX = canvas.width * (0.3 + Math.random() * 0.4);
+    this.cursorY = canvas.height * (0.3 + Math.random() * 0.4);
 
-    // Main accumulation layer
     this.accCanvas = document.createElement('canvas');
     this.accCanvas.width = canvas.width;
     this.accCanvas.height = canvas.height;
@@ -79,7 +72,6 @@ export class GenerativeEngine {
     this.accCtx.fillStyle = '#000';
     this.accCtx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Glow/bloom layer (half resolution for performance)
     this.glowCanvas = document.createElement('canvas');
     this.glowCanvas.width = Math.floor(canvas.width / 4);
     this.glowCanvas.height = Math.floor(canvas.height / 4);
@@ -90,536 +82,480 @@ export class GenerativeEngine {
     this.time += 0.016;
 
     if (features.isSpeaking) {
-      this.prevCursorX = this.cursorX;
-      this.prevCursorY = this.cursorY;
-      const drift = features.volume * 8 + 1;
-      this.cursorX += Math.sin(this.time * 0.7 + this.seedX) * drift + (Math.random() - 0.5) * drift * 2;
-      this.cursorY += Math.cos(this.time * 0.5 + this.seedY) * drift + (Math.random() - 0.5) * drift * 2;
-      this.cursorX = Math.max(80, Math.min(this.canvas.width - 80, this.cursorX));
-      this.cursorY = Math.max(80, Math.min(this.canvas.height - 80, this.cursorY));
+      this.framesSinceSpeaking = 0;
+
+      // Move cursor organically
+      const speed = 1.5 + features.volume * 6;
+      const wanderX = Math.sin(this.time * 0.43 + this.seedX) * speed
+        + Math.sin(this.time * 1.1 + this.seedX * 2) * speed * 0.3
+        + Math.cos(this.time * 0.17 + features.pitch * 0.001) * speed * 0.5;
+      const wanderY = Math.cos(this.time * 0.37 + this.seedY) * speed
+        + Math.cos(this.time * 0.9 + this.seedY * 2) * speed * 0.3
+        + Math.sin(this.time * 0.21 + features.pitch * 0.001) * speed * 0.5;
+
+      this.cursorX += wanderX;
+      this.cursorY += wanderY;
+
+      // Soft bounce off edges
+      const margin = 60;
+      if (this.cursorX < margin) this.cursorX += (margin - this.cursorX) * 0.1;
+      if (this.cursorX > this.canvas.width - margin) this.cursorX -= (this.cursorX - (this.canvas.width - margin)) * 0.1;
+      if (this.cursorY < margin) this.cursorY += (margin - this.cursorY) * 0.1;
+      if (this.cursorY > this.canvas.height - margin) this.cursorY -= (this.cursorY - (this.canvas.height - margin)) * 0.1;
 
       if (features.isSnap) {
-        this.spawnSnapEffect(features);
+        this.spawnSnapBurst(features);
+        // End current flows on snap
+        this.endActiveFlows();
       } else {
-        this.spawnVoiceParticles(features);
-        this.spawnStippleClusters(features);
-        this.spawnSpirals(features);
-        this.growTendrils(features);
-        this.spawnNebula(features);
+        this.continueFlowing(features);
+      }
+    } else {
+      this.framesSinceSpeaking++;
+      if (this.framesSinceSpeaking > 10) {
+        this.endActiveFlows();
       }
     }
 
-    this.updateParticles();
-    this.updateTendrils();
+    this.updateBursts();
     this.render();
   }
 
   private pickColor(f: AudioFeatures): [number, number, number] {
-    const idx = Math.floor((f.pitch / 800 * NEON_COLORS.length + this.colorOffset / 30)) % NEON_COLORS.length;
-    const [h, s, l] = NEON_COLORS[Math.abs(idx)];
-    return [(h + f.pitch * 0.05 + this.colorOffset) % 360, s, l + f.volume * 15];
+    const idx = Math.abs(Math.floor((f.pitch / 600 * NEON_COLORS.length + this.colorOffset / 25))) % NEON_COLORS.length;
+    const [h, s, l] = NEON_COLORS[idx];
+    return [(h + f.pitch * 0.04 + this.colorOffset + this.time * 2) % 360, s, l + f.volume * 10];
   }
 
-  /** Voice → organic flowing orbs and spores */
-  private spawnVoiceParticles(f: AudioFeatures) {
-    const count = Math.floor(f.volume * 12) + 1;
-    for (let i = 0; i < count; i++) {
-      const angle = this.time * 0.3 + (f.pitch / 400) * Math.PI * 2 + Math.random() * Math.PI * 2;
-      const dist = f.bass * 120 + Math.random() * 80;
-      const [h, s, l] = this.pickColor(f);
-      const type: PType = f.bass > 0.4 ? 'orb' : f.mid > 0.3 ? 'spore' : 'dot';
+  /** Continuous flowing lines that follow cursor */
+  private continueFlowing(f: AudioFeatures) {
+    const [h, s, l] = this.pickColor(f);
 
-      this.particles.push({
-        x: this.cursorX + Math.cos(angle) * dist,
-        y: this.cursorY + Math.sin(angle) * dist,
-        vx: Math.cos(angle) * f.volume * 1.5,
-        vy: Math.sin(angle) * f.volume * 1.5,
-        hue: h, sat: s, light: l,
-        size: type === 'orb' ? (f.bass * 45 + 12) : type === 'spore' ? (f.mid * 18 + 6) : (f.treble * 5 + 1.5),
-        life: 1, maxLife: 1, type,
-      });
+    // Ensure we have active flows (2-4 parallel lines for richness)
+    while (this.activeFlows.length < 3) {
+      const style: FlowLine['style'] =
+        this.activeFlows.length === 0 ? 'smooth' :
+        this.activeFlows.length === 1 ? 'dotted' : 'glow';
+      this.activeFlows.push({ points: [], life: 1, style });
     }
-    if (this.particles.length > 800) this.particles = this.particles.slice(-800);
+
+    // Add point to each active flow with slight offsets
+    for (let fi = 0; fi < this.activeFlows.length; fi++) {
+      const flow = this.activeFlows[fi];
+      const offsetAngle = (fi / this.activeFlows.length) * Math.PI * 2 + this.time * 0.3;
+      const offsetDist = 10 + fi * 15 + f.volume * 30;
+
+      const px = this.cursorX + Math.cos(offsetAngle) * offsetDist;
+      const py = this.cursorY + Math.sin(offsetAngle) * offsetDist;
+
+      const hShift = fi * 40;
+      flow.points.push({
+        x: px, y: py,
+        hue: (h + hShift) % 360, sat: s, light: l,
+        size: 1 + f.volume * 6 + f.bass * 4,
+        volume: f.volume,
+      });
+
+      // Spawn stipple clusters along flow occasionally
+      if (Math.random() < f.volume * 0.15 && fi === 0) {
+        this.spawnStippleAt(px + (Math.random() - 0.5) * 40, py + (Math.random() - 0.5) * 40, h, s, l, 15 + f.volume * 50, 20 + Math.floor(f.volume * 60));
+      }
+
+      // Spawn spiral along flow rarely
+      if (Math.random() < 0.008 && fi === 0) {
+        this.spawnSpiralAt(px, py, h, s, l, 25 + f.volume * 50);
+      }
+
+      // Spawn nebula orb along flow
+      if (Math.random() < f.volume * 0.03) {
+        this.spawnNebulaAt(px + (Math.random() - 0.5) * 60, py + (Math.random() - 0.5) * 60, (h + hShift) % 360, s, l, 30 + f.volume * 60);
+      }
+    }
+
+    this.totalDrawn++;
   }
 
-  /** 점묘 패턴 — dense clusters of tiny dots forming larger shapes */
-  private spawnStippleClusters(f: AudioFeatures) {
-    if (Math.random() > 0.15) return;
-    const [h, s, l] = this.pickColor(f);
-    const cx = this.cursorX + (Math.random() - 0.5) * 200;
-    const cy = this.cursorY + (Math.random() - 0.5) * 200;
-    const clusterSize = 30 + f.volume * 80;
-    const dotCount = 40 + Math.floor(f.volume * 100);
-
-    this.particles.push({
-      x: cx, y: cy, vx: 0, vy: 0,
-      hue: h, sat: s, light: l,
-      size: clusterSize, life: 1, maxLife: 1,
-      type: 'stipple_cluster',
-      data: { dotCount, innerHue: (h + 30) % 360 },
-    });
+  private endActiveFlows() {
+    for (const flow of this.activeFlows) {
+      if (flow.points.length > 1) {
+        this.flows.push(flow);
+      }
+    }
+    this.activeFlows = [];
+    // Commit old completed flows to accumulation canvas and clear
+    this.commitFlows();
   }
 
-  /** 유기적 나선 */
-  private spawnSpirals(f: AudioFeatures) {
-    if (Math.random() > 0.06) return;
-    const [h, s, l] = this.pickColor(f);
+  /** Draw completed flows permanently onto accumulation canvas */
+  private commitFlows() {
+    const ctx = this.accCtx;
+    for (const flow of this.flows) {
+      this.drawFlow(ctx, flow);
+    }
+    this.flows = [];
+  }
+
+  private drawFlow(ctx: CanvasRenderingContext2D, flow: FlowLine) {
+    if (flow.points.length < 2) return;
+
+    ctx.save();
+
+    if (flow.style === 'dotted') {
+      // Stippled path
+      for (let i = 0; i < flow.points.length; i++) {
+        const pt = flow.points[i];
+        ctx.globalAlpha = 0.7 + pt.volume * 0.3;
+        ctx.fillStyle = `hsl(${pt.hue}, ${pt.sat}%, ${pt.light}%)`;
+        ctx.shadowColor = `hsl(${pt.hue}, ${pt.sat}%, ${pt.light}%)`;
+        ctx.shadowBlur = 8;
+        // Main dot
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.size * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+        // Scatter dots around
+        const scatter = 3 + pt.volume * 5;
+        for (let d = 0; d < scatter; d++) {
+          const ox = (Math.random() - 0.5) * pt.size * 4;
+          const oy = (Math.random() - 0.5) * pt.size * 4;
+          const ds = 0.4 + Math.random() * 1.2;
+          ctx.globalAlpha = 0.3 + Math.random() * 0.4;
+          ctx.beginPath();
+          ctx.arc(pt.x + ox, pt.y + oy, ds, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    } else if (flow.style === 'glow') {
+      // Soft glowing trail
+      for (let i = 1; i < flow.points.length; i++) {
+        const p0 = flow.points[i - 1];
+        const p1 = flow.points[i];
+        ctx.globalAlpha = 0.15 + p1.volume * 0.2;
+        const grad = ctx.createRadialGradient(p1.x, p1.y, 0, p1.x, p1.y, p1.size * 5);
+        grad.addColorStop(0, `hsla(${p1.hue}, ${p1.sat}%, ${Math.min(100, p1.light + 20)}%, 0.5)`);
+        grad.addColorStop(0.5, `hsla(${p1.hue}, ${p1.sat}%, ${p1.light}%, 0.1)`);
+        grad.addColorStop(1, `hsla(${p1.hue}, ${p1.sat}%, ${p1.light}%, 0)`);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(p1.x, p1.y, p1.size * 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else {
+      // Smooth continuous curve
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      for (let i = 1; i < flow.points.length; i++) {
+        const p0 = flow.points[i - 1];
+        const p1 = flow.points[i];
+        ctx.globalAlpha = 0.6 + p1.volume * 0.4;
+        ctx.strokeStyle = `hsl(${p1.hue}, ${p1.sat}%, ${p1.light}%)`;
+        ctx.lineWidth = p1.size;
+        ctx.shadowColor = `hsl(${p1.hue}, ${p1.sat}%, ${p1.light}%)`;
+        ctx.shadowBlur = p1.size * 3;
+
+        ctx.beginPath();
+        if (i >= 2) {
+          const p_prev = flow.points[i - 2];
+          const cpx = p0.x * 2 - (p_prev.x + p1.x) / 2;
+          const cpy = p0.y * 2 - (p_prev.y + p1.y) / 2;
+          ctx.moveTo(p0.x, p0.y);
+          ctx.quadraticCurveTo(cpx, cpy, p1.x, p1.y);
+        } else {
+          ctx.moveTo(p0.x, p0.y);
+          ctx.lineTo(p1.x, p1.y);
+        }
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  private spawnStippleAt(x: number, y: number, h: number, s: number, l: number, size: number, count: number) {
+    const ctx = this.accCtx;
+    ctx.save();
+    ctx.shadowBlur = 8;
+    for (let i = 0; i < count; i++) {
+      const r = size * Math.sqrt(Math.random());
+      const a = Math.random() * Math.PI * 2;
+      const dx = x + Math.cos(a) * r;
+      const dy = y + Math.sin(a) * r;
+      const dist = r / size;
+      const dotHue = (h + dist * 40) % 360;
+      const dotLight = Math.min(100, l + (1 - dist) * 25);
+      const dotSize = (1 - dist * 0.5) * (0.8 + Math.random() * 2);
+      ctx.globalAlpha = 0.5 + (1 - dist) * 0.5;
+      ctx.fillStyle = `hsl(${dotHue}, ${s}%, ${dotLight}%)`;
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.beginPath();
+      ctx.arc(dx, dy, dotSize, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  private spawnSpiralAt(x: number, y: number, h: number, s: number, l: number, size: number) {
+    const ctx = this.accCtx;
+    ctx.save();
+    ctx.shadowBlur = 8;
+    const turns = 2 + Math.random() * 3;
+    const dir = Math.random() > 0.5 ? 1 : -1;
+    const baseAngle = Math.random() * Math.PI * 2;
+    const steps = Math.floor(turns * 35);
+
+    for (let i = 0; i < steps; i++) {
+      const t = i / steps;
+      const angle = baseAngle + t * turns * Math.PI * 2 * dir;
+      const r = t * size;
+      const sx = x + Math.cos(angle) * r;
+      const sy = y + Math.sin(angle) * r;
+      const dotSize = (1 - t * 0.5) * 2;
+      ctx.globalAlpha = 0.6 + (1 - t) * 0.4;
+      ctx.fillStyle = `hsl(${(h + t * 50) % 360}, ${s}%, ${Math.min(100, l + (1 - t) * 20)}%)`;
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.beginPath();
+      ctx.arc(sx, sy, dotSize, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (Math.random() > 0.5) {
+        const ox = (Math.random() - 0.5) * 6;
+        const oy = (Math.random() - 0.5) * 6;
+        ctx.globalAlpha = 0.3;
+        ctx.beginPath();
+        ctx.arc(sx + ox, sy + oy, dotSize * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  private spawnNebulaAt(x: number, y: number, h: number, s: number, l: number, size: number) {
+    const ctx = this.accCtx;
+    ctx.save();
+    for (let layer = 0; layer < 2; layer++) {
+      const ox = (Math.random() - 0.5) * size * 0.3;
+      const oy = (Math.random() - 0.5) * size * 0.3;
+      const r = size * (0.7 + layer * 0.3);
+      const grad = ctx.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+      const hShift = layer * 25;
+      grad.addColorStop(0, `hsla(${(h + hShift) % 360}, ${s}%, ${Math.min(100, l + 25)}%, 0.25)`);
+      grad.addColorStop(0.4, `hsla(${(h + hShift) % 360}, ${s}%, ${l}%, 0.08)`);
+      grad.addColorStop(1, `hsla(${(h + hShift) % 360}, ${s}%, ${l}%, 0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x + ox, y + oy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Fine dots inside
+    for (let i = 0; i < 15; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r2 = Math.random() * size * 0.6;
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = `hsl(${(h + Math.random() * 30) % 360}, ${s}%, ${Math.min(100, l + 20)}%)`;
+      ctx.beginPath();
+      ctx.arc(x + Math.cos(a) * r2, y + Math.sin(a) * r2, 0.6 + Math.random() * 0.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** Snap → burst effect */
+  private spawnSnapBurst(f: AudioFeatures) {
     const cx = this.cursorX + (Math.random() - 0.5) * 150;
     const cy = this.cursorY + (Math.random() - 0.5) * 150;
-
-    this.particles.push({
-      x: cx, y: cy, vx: 0, vy: 0,
-      hue: h, sat: s, light: l,
-      size: 40 + f.volume * 60,
-      life: 1, maxLife: 1,
-      type: 'spiral',
-      angle: Math.random() * Math.PI * 2,
-      data: { turns: 2 + Math.random() * 3, direction: Math.random() > 0.5 ? 1 : -1 },
-    });
-  }
-
-  /** Nebula — soft glowing cloud */
-  private spawnNebula(f: AudioFeatures) {
-    if (Math.random() > 0.04) return;
-    const [h, s, l] = this.pickColor(f);
-    this.particles.push({
-      x: this.cursorX + (Math.random() - 0.5) * 250,
-      y: this.cursorY + (Math.random() - 0.5) * 250,
-      vx: 0, vy: 0,
-      hue: h, sat: s, light: l,
-      size: 60 + f.volume * 100,
-      life: 1, maxLife: 1,
-      type: 'nebula',
-    });
-  }
-
-  /** Snap → crystalline shards, rings, starbursts */
-  private spawnSnapEffect(f: AudioFeatures) {
-    const cx = this.cursorX + (Math.random() - 0.5) * 200;
-    const cy = this.cursorY + (Math.random() - 0.5) * 200;
     const sc = SNAP_COLORS[Math.floor(Math.random() * SNAP_COLORS.length)];
 
-    this.particles.push({
-      x: cx, y: cy, vx: 0, vy: 0,
-      hue: sc[0], sat: sc[1], light: sc[2],
-      size: 35 + f.volume * 50, life: 1, maxLife: 1, type: 'starburst',
+    // Starburst
+    this.bursts.push({
+      x: cx, y: cy, hue: sc[0], sat: sc[1], light: sc[2],
+      size: 35 + f.volume * 50, life: 1, type: 'starburst', vx: 0, vy: 0,
     });
-    this.particles.push({
-      x: cx, y: cy, vx: 0, vy: 0,
-      hue: sc[0], sat: sc[1], light: sc[2],
-      size: 5, life: 1, maxLife: 1, type: 'ring',
+    // Ring
+    this.bursts.push({
+      x: cx, y: cy, hue: sc[0], sat: sc[1], light: sc[2],
+      size: 5, life: 1, type: 'ring', vx: 0, vy: 0,
     });
-
-    const shardCount = 10 + Math.floor(Math.random() * 10);
-    for (let i = 0; i < shardCount; i++) {
-      const angle = (i / shardCount) * Math.PI * 2 + Math.random() * 0.3;
+    // Shards
+    const count = 10 + Math.floor(Math.random() * 10);
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 + Math.random() * 0.4;
       const speed = 3 + Math.random() * 6;
       const sC = SNAP_COLORS[Math.floor(Math.random() * SNAP_COLORS.length)];
-      this.particles.push({
+      this.bursts.push({
         x: cx, y: cy,
         vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
         hue: sC[0], sat: sC[1], light: sC[2],
-        size: 4 + Math.random() * 12, life: 1, maxLife: 1, type: 'shard',
+        size: 4 + Math.random() * 12, life: 1, type: 'shard',
       });
     }
-
-    // Snap stipple burst
-    this.particles.push({
-      x: cx, y: cy, vx: 0, vy: 0,
-      hue: 0, sat: 0, light: 90,
-      size: 50 + f.volume * 40, life: 1, maxLife: 1,
-      type: 'stipple_cluster',
-      data: { dotCount: 80, innerHue: sc[0] },
-    });
+    // Stipple burst
+    this.spawnStippleAt(cx, cy, sc[0], sc[1], sc[2], 50 + f.volume * 40, 60);
   }
 
-  /** Organic tendrils with optional dotted style */
-  private growTendrils(f: AudioFeatures) {
-    if (Math.random() > 0.07) return;
-    const colorIdx = Math.floor(Math.random() * NEON_COLORS.length);
-    const [h, s, l] = NEON_COLORS[colorIdx];
-    const dotted = Math.random() > 0.5;
-
-    const points = [{ x: this.cursorX, y: this.cursorY }];
-    let x = this.cursorX, y = this.cursorY;
-    const segments = Math.floor(f.volume * 40) + 15;
-
-    for (let i = 0; i < segments; i++) {
-      const angle = -Math.PI / 2
-        + Math.sin(this.time * 0.8 + i * 0.25 + this.seedX) * 1.0
-        + Math.cos(this.time * 0.3 + i * 0.15 + this.seedY) * 0.6;
-      const step = 3 + f.bass * 7;
-      x += Math.cos(angle) * step + (Math.random() - 0.5) * f.treble * 12;
-      y += Math.sin(angle) * step + (Math.random() - 0.5) * f.mid * 8;
-      points.push({ x, y });
-    }
-
-    this.tendrils.push({
-      points,
-      hue: (h + this.colorOffset) % 360,
-      sat: s, light: l,
-      width: f.bass * 5 + 1,
-      life: 1,
-      dotted,
-    });
-
-    if (this.tendrils.length > 50) this.tendrils = this.tendrils.slice(-50);
-  }
-
-  private updateParticles() {
-    for (const p of this.particles) {
-      if (p.type === 'ring') {
-        p.size += 2.5;
-        p.life -= 0.012;
-      } else if (p.type === 'starburst') {
-        p.life -= 0.01;
-      } else if (p.type === 'shard') {
-        p.x += p.vx; p.y += p.vy;
-        p.vx *= 0.95; p.vy *= 0.95;
-        p.life -= 0.007;
-      } else if (p.type === 'stipple_cluster' || p.type === 'spiral' || p.type === 'nebula') {
-        p.life -= 0.008;
-      } else {
-        p.x += p.vx; p.y += p.vy;
-        p.vy += 0.005;
-        p.vx *= 0.997; p.vy *= 0.997;
-        p.life -= 0.005;
+  private updateBursts() {
+    for (const b of this.bursts) {
+      if (b.type === 'ring') { b.size += 3; b.life -= 0.015; }
+      else if (b.type === 'starburst') { b.life -= 0.012; }
+      else if (b.type === 'shard') {
+        b.x += b.vx; b.y += b.vy;
+        b.vx *= 0.95; b.vy *= 0.95;
+        b.life -= 0.008;
       }
     }
-    this.particles = this.particles.filter(p => p.life > 0);
-  }
 
-  private updateTendrils() {
-    for (const t of this.tendrils) t.life -= 0.004;
-    this.tendrils = this.tendrils.filter(t => t.life > 0);
+    // Commit dying bursts to accumulation
+    const dying = this.bursts.filter(b => b.life <= 0.3 && b.life > 0.25);
+    // Always draw active bursts
+    const ctx = this.accCtx;
+    for (const b of this.bursts) {
+      if (b.life <= 0) continue;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, b.life);
+      const color = `hsl(${b.hue}, ${b.sat}%, ${b.light}%)`;
+
+      if (b.type === 'starburst') {
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 50;
+        const grad = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.size);
+        grad.addColorStop(0, `hsla(${b.hue}, ${b.sat}%, 98%, ${b.life})`);
+        grad.addColorStop(0.15, `hsla(${b.hue}, ${b.sat}%, ${b.light}%, ${b.life * 0.7})`);
+        grad.addColorStop(1, `hsla(${b.hue}, ${b.sat}%, ${b.light}%, 0)`);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = `hsla(0, 0%, 100%, ${b.life * 0.4})`;
+        ctx.lineWidth = 1;
+        for (let a = 0; a < 6; a++) {
+          const angle = (a / 6) * Math.PI * 2 + this.time;
+          ctx.beginPath();
+          ctx.moveTo(b.x, b.y);
+          ctx.lineTo(b.x + Math.cos(angle) * b.size * 1.8, b.y + Math.sin(angle) * b.size * 1.8);
+          ctx.stroke();
+        }
+      } else if (b.type === 'ring') {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (b.type === 'shard') {
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 8;
+        const angle = Math.atan2(b.vy, b.vx);
+        const len = b.size * 2;
+        const w = b.size * 0.3;
+        ctx.beginPath();
+        ctx.moveTo(b.x + Math.cos(angle) * len, b.y + Math.sin(angle) * len);
+        ctx.lineTo(b.x + Math.cos(angle + Math.PI / 2) * w, b.y + Math.sin(angle + Math.PI / 2) * w);
+        ctx.lineTo(b.x - Math.cos(angle) * len * 0.3, b.y - Math.sin(angle) * len * 0.3);
+        ctx.lineTo(b.x + Math.cos(angle - Math.PI / 2) * w, b.y + Math.sin(angle - Math.PI / 2) * w);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    this.bursts = this.bursts.filter(b => b.life > 0);
   }
 
   private render() {
     const ctx = this.accCtx;
 
-    // Draw tendrils
-    for (const t of this.tendrils) {
-      if (t.points.length < 2) continue;
-      ctx.save();
-      ctx.globalAlpha = Math.min(1, t.life * 0.85);
-      const color = `hsl(${t.hue}, ${t.sat}%, ${t.light}%)`;
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 20;
+    // Draw active (in-progress) flows directly to accumulation
+    for (const flow of this.activeFlows) {
+      if (flow.points.length < 2) continue;
+      // Only draw the latest segment to avoid redrawing everything
+      const len = flow.points.length;
+      if (len < 2) continue;
 
-      if (t.dotted) {
-        // Dotted tendril — stipple along path
-        ctx.fillStyle = color;
-        for (let i = 0; i < t.points.length; i++) {
-          const pt = t.points[i];
-          const dotSize = (t.width * 0.4 + Math.random() * t.width * 0.3) * Math.min(1, t.life + 0.3);
-          ctx.beginPath();
-          ctx.arc(pt.x + (Math.random() - 0.5) * 3, pt.y + (Math.random() - 0.5) * 3, dotSize, 0, Math.PI * 2);
-          ctx.fill();
-          // Scatter extra tiny dots around
-          if (Math.random() > 0.5) {
-            const ox = (Math.random() - 0.5) * 10;
-            const oy = (Math.random() - 0.5) * 10;
-            ctx.beginPath();
-            ctx.arc(pt.x + ox, pt.y + oy, dotSize * 0.3, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
-      } else {
-        ctx.strokeStyle = color;
-        ctx.lineWidth = t.width * Math.min(1, t.life + 0.3);
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
+      const p0 = flow.points[len - 2];
+      const p1 = flow.points[len - 1];
+
+      ctx.save();
+
+      if (flow.style === 'dotted') {
+        ctx.globalAlpha = 0.7 + p1.volume * 0.3;
+        ctx.fillStyle = `hsl(${p1.hue}, ${p1.sat}%, ${p1.light}%)`;
+        ctx.shadowColor = ctx.fillStyle;
+        ctx.shadowBlur = 8;
         ctx.beginPath();
-        ctx.moveTo(t.points[0].x, t.points[0].y);
-        for (let i = 1; i < t.points.length - 1; i++) {
-          const xc = (t.points[i].x + t.points[i + 1].x) / 2;
-          const yc = (t.points[i].y + t.points[i + 1].y) / 2;
-          ctx.quadraticCurveTo(t.points[i].x, t.points[i].y, xc, yc);
+        ctx.arc(p1.x, p1.y, p1.size * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+        const scatter = 2 + p1.volume * 4;
+        for (let d = 0; d < scatter; d++) {
+          const ox = (Math.random() - 0.5) * p1.size * 4;
+          const oy = (Math.random() - 0.5) * p1.size * 4;
+          ctx.globalAlpha = 0.25 + Math.random() * 0.3;
+          ctx.beginPath();
+          ctx.arc(p1.x + ox, p1.y + oy, 0.4 + Math.random(), 0, Math.PI * 2);
+          ctx.fill();
         }
+      } else if (flow.style === 'glow') {
+        ctx.globalAlpha = 0.12 + p1.volume * 0.15;
+        const r = p1.size * 5;
+        const grad = ctx.createRadialGradient(p1.x, p1.y, 0, p1.x, p1.y, r);
+        grad.addColorStop(0, `hsla(${p1.hue}, ${p1.sat}%, ${Math.min(100, p1.light + 20)}%, 0.4)`);
+        grad.addColorStop(0.5, `hsla(${p1.hue}, ${p1.sat}%, ${p1.light}%, 0.08)`);
+        grad.addColorStop(1, `hsla(${p1.hue}, ${p1.sat}%, ${p1.light}%, 0)`);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(p1.x, p1.y, r, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.globalAlpha = 0.6 + p1.volume * 0.4;
+        ctx.strokeStyle = `hsl(${p1.hue}, ${p1.sat}%, ${p1.light}%)`;
+        ctx.lineWidth = p1.size;
+        ctx.lineCap = 'round';
+        ctx.shadowColor = ctx.strokeStyle;
+        ctx.shadowBlur = p1.size * 3;
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+        ctx.lineTo(p1.x, p1.y);
         ctx.stroke();
       }
+
       ctx.restore();
     }
 
-    // Draw particles
-    for (const p of this.particles) {
-      ctx.save();
-      ctx.globalAlpha = Math.min(1, p.life * 0.9);
-      const color = `hsl(${p.hue}, ${p.sat}%, ${p.light}%)`;
-
-      switch (p.type) {
-        case 'stipple_cluster':
-          this.drawStippleCluster(ctx, p, color);
-          break;
-        case 'spiral':
-          this.drawSpiral(ctx, p, color);
-          break;
-        case 'nebula':
-          this.drawNebula(ctx, p, color);
-          break;
-        case 'starburst':
-          this.drawStarburst(ctx, p, color);
-          break;
-        case 'ring':
-          this.drawRing(ctx, p, color);
-          break;
-        case 'shard':
-          this.drawShard(ctx, p, color);
-          break;
-        case 'orb':
-          this.drawOrb(ctx, p, color);
-          break;
-        case 'spore':
-          this.drawSpore(ctx, p, color);
-          break;
-        default:
-          this.drawDot(ctx, p, color);
-      }
-      ctx.restore();
-    }
-
-    // Composite: accumulation + bloom glow
+    // Composite to display
     const display = this.ctx;
     display.drawImage(this.accCanvas, 0, 0);
 
-    // Bloom pass: downsample, blur, overlay with additive blending
+    // Bloom
     const gw = this.glowCanvas.width;
     const gh = this.glowCanvas.height;
     this.glowCtx.clearRect(0, 0, gw, gh);
     this.glowCtx.drawImage(this.accCanvas, 0, 0, gw, gh);
-    this.glowCtx.filter = 'blur(8px)';
+    this.glowCtx.filter = 'blur(6px)';
     this.glowCtx.drawImage(this.glowCanvas, 0, 0);
     this.glowCtx.filter = 'none';
 
     display.save();
     display.globalCompositeOperation = 'lighter';
-    display.globalAlpha = 0.35;
+    display.globalAlpha = 0.3;
     display.drawImage(this.glowCanvas, 0, 0, this.canvas.width, this.canvas.height);
     display.restore();
   }
 
-  // ─── Drawing helpers ────────────────────────────
-
-  private drawStippleCluster(ctx: CanvasRenderingContext2D, p: Particle, color: string) {
-    const { dotCount, innerHue } = p.data;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 12;
-
-    for (let i = 0; i < dotCount; i++) {
-      // Gaussian-ish distribution using Box-Muller-lite
-      const r = p.size * Math.sqrt(-2 * Math.log(Math.max(0.001, Math.random()))) * 0.4;
-      const a = Math.random() * Math.PI * 2;
-      const dx = p.x + Math.cos(a) * r;
-      const dy = p.y + Math.sin(a) * r;
-      const dist = Math.sqrt((dx - p.x) ** 2 + (dy - p.y) ** 2) / p.size;
-
-      // Color shifts from center to edge
-      const dotHue = dist < 0.3 ? innerHue : p.hue;
-      const dotLight = p.light + (1 - dist) * 20;
-      const dotSize = (1 - dist * 0.7) * (1.5 + Math.random() * 2);
-
-      ctx.fillStyle = `hsl(${dotHue}, ${p.sat}%, ${Math.min(100, dotLight)}%)`;
-      ctx.beginPath();
-      ctx.arc(dx, dy, dotSize * p.life, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  private drawSpiral(ctx: CanvasRenderingContext2D, p: Particle, color: string) {
-    const { turns, direction } = p.data;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 10;
-
-    const totalSteps = Math.floor(turns * 40);
-    const baseAngle = p.angle || 0;
-
-    for (let i = 0; i < totalSteps; i++) {
-      const t = i / totalSteps;
-      const angle = baseAngle + t * turns * Math.PI * 2 * direction;
-      const r = t * p.size;
-      const sx = p.x + Math.cos(angle) * r;
-      const sy = p.y + Math.sin(angle) * r;
-
-      const dotSize = (1 - t * 0.6) * 2.5;
-      const hShift = t * 40;
-      ctx.fillStyle = `hsl(${(p.hue + hShift) % 360}, ${p.sat}%, ${p.light + (1 - t) * 15}%)`;
-      ctx.beginPath();
-      ctx.arc(sx, sy, dotSize * p.life, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Scatter satellite dots
-      if (Math.random() > 0.6) {
-        const ox = (Math.random() - 0.5) * 8;
-        const oy = (Math.random() - 0.5) * 8;
-        ctx.beginPath();
-        ctx.arc(sx + ox, sy + oy, dotSize * 0.3 * p.life, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-  }
-
-  private drawNebula(ctx: CanvasRenderingContext2D, p: Particle, color: string) {
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 30;
-
-    // Multiple overlapping soft circles
-    for (let layer = 0; layer < 3; layer++) {
-      const ox = (Math.random() - 0.5) * p.size * 0.3;
-      const oy = (Math.random() - 0.5) * p.size * 0.3;
-      const r = p.size * (0.6 + layer * 0.2);
-      const grad = ctx.createRadialGradient(p.x + ox, p.y + oy, 0, p.x + ox, p.y + oy, r);
-      const hShift = layer * 20;
-      grad.addColorStop(0, `hsla(${(p.hue + hShift) % 360}, ${p.sat}%, ${Math.min(100, p.light + 20)}%, ${0.3 * p.life})`);
-      grad.addColorStop(0.5, `hsla(${(p.hue + hShift) % 360}, ${p.sat}%, ${p.light}%, ${0.12 * p.life})`);
-      grad.addColorStop(1, `hsla(${(p.hue + hShift) % 360}, ${p.sat}%, ${p.light}%, 0)`);
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(p.x + ox, p.y + oy, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Fine stipple inside nebula
-    const stippleCount = 30;
-    for (let i = 0; i < stippleCount; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const r2 = Math.random() * p.size * 0.8;
-      ctx.fillStyle = `hsla(${(p.hue + Math.random() * 30) % 360}, ${p.sat}%, ${Math.min(100, p.light + 25)}%, ${0.6 * p.life})`;
-      ctx.beginPath();
-      ctx.arc(p.x + Math.cos(a) * r2, p.y + Math.sin(a) * r2, 0.8 + Math.random(), 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  private drawStarburst(ctx: CanvasRenderingContext2D, p: Particle, color: string) {
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 50;
-    const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
-    grad.addColorStop(0, `hsla(${p.hue}, ${p.sat}%, 98%, ${p.life})`);
-    grad.addColorStop(0.15, `hsla(${p.hue}, ${p.sat}%, ${p.light}%, ${p.life * 0.8})`);
-    grad.addColorStop(1, `hsla(${p.hue}, ${p.sat}%, ${p.light}%, 0)`);
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = `hsla(0, 0%, 100%, ${p.life * 0.5})`;
-    ctx.lineWidth = 1.2;
-    const spikeLen = p.size * 1.8;
-    for (let a = 0; a < 6; a++) {
-      const angle = (a / 6) * Math.PI * 2 + this.time * 0.5;
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y);
-      ctx.lineTo(p.x + Math.cos(angle) * spikeLen, p.y + Math.sin(angle) * spikeLen);
-      ctx.stroke();
-    }
-  }
-
-  private drawRing(ctx: CanvasRenderingContext2D, p: Particle, color: string) {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 20;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-
-  private drawShard(ctx: CanvasRenderingContext2D, p: Particle, color: string) {
-    ctx.fillStyle = color;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 10;
-    const angle = Math.atan2(p.vy, p.vx);
-    const len = p.size * 2;
-    const w = p.size * 0.3;
-    ctx.beginPath();
-    ctx.moveTo(p.x + Math.cos(angle) * len, p.y + Math.sin(angle) * len);
-    ctx.lineTo(p.x + Math.cos(angle + Math.PI / 2) * w, p.y + Math.sin(angle + Math.PI / 2) * w);
-    ctx.lineTo(p.x - Math.cos(angle) * len * 0.3, p.y - Math.sin(angle) * len * 0.3);
-    ctx.lineTo(p.x + Math.cos(angle - Math.PI / 2) * w, p.y + Math.sin(angle - Math.PI / 2) * w);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  private drawOrb(ctx: CanvasRenderingContext2D, p: Particle, color: string) {
-    ctx.shadowColor = color;
-    ctx.shadowBlur = p.size * 2.5;
-    const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
-    grad.addColorStop(0, `hsla(${p.hue}, ${p.sat}%, ${Math.min(100, p.light + 30)}%, 0.95)`);
-    grad.addColorStop(0.3, `hsla(${p.hue}, ${p.sat}%, ${p.light}%, 0.6)`);
-    grad.addColorStop(0.7, `hsla(${(p.hue + 15) % 360}, ${p.sat}%, ${p.light - 10}%, 0.2)`);
-    grad.addColorStop(1, `hsla(${p.hue}, ${p.sat}%, ${p.light}%, 0)`);
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Inner stipple ring for texture
-    ctx.fillStyle = `hsla(${(p.hue + 20) % 360}, ${p.sat}%, ${Math.min(100, p.light + 20)}%, ${p.life * 0.5})`;
-    const ringDots = 10;
-    for (let i = 0; i < ringDots; i++) {
-      const a = (i / ringDots) * Math.PI * 2;
-      const r = p.size * 0.55;
-      ctx.beginPath();
-      ctx.arc(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r, 1.2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  private drawSpore(ctx: CanvasRenderingContext2D, p: Particle, color: string) {
-    ctx.fillStyle = color;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 8;
-    // Outer ring of dots
-    const outerDots = 8;
-    for (let i = 0; i < outerDots; i++) {
-      const a = (i / outerDots) * Math.PI * 2 + this.time * 0.3;
-      const r = p.size * 0.7;
-      ctx.beginPath();
-      ctx.arc(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r, p.size * 0.12, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    // Inner ring
-    const innerDots = 5;
-    for (let i = 0; i < innerDots; i++) {
-      const a = (i / innerDots) * Math.PI * 2 - this.time * 0.2;
-      const r = p.size * 0.35;
-      ctx.beginPath();
-      ctx.arc(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r, p.size * 0.08, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    // Center
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size * 0.2, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  private drawDot(ctx: CanvasRenderingContext2D, p: Particle, color: string) {
-    ctx.fillStyle = color;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 5;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
   toDataURL(): string {
-    // Render bloom on a final composite
     const out = document.createElement('canvas');
     out.width = this.canvas.width;
     out.height = this.canvas.height;
     const oCtx = out.getContext('2d')!;
     oCtx.drawImage(this.accCanvas, 0, 0);
 
-    const gw = this.glowCanvas.width;
-    const gh = this.glowCanvas.height;
-    this.glowCtx.clearRect(0, 0, gw, gh);
-    this.glowCtx.drawImage(this.accCanvas, 0, 0, gw, gh);
-    this.glowCtx.filter = 'blur(8px)';
+    this.glowCtx.clearRect(0, 0, this.glowCanvas.width, this.glowCanvas.height);
+    this.glowCtx.drawImage(this.accCanvas, 0, 0, this.glowCanvas.width, this.glowCanvas.height);
+    this.glowCtx.filter = 'blur(6px)';
     this.glowCtx.drawImage(this.glowCanvas, 0, 0);
     this.glowCtx.filter = 'none';
 
     oCtx.globalCompositeOperation = 'lighter';
-    oCtx.globalAlpha = 0.35;
+    oCtx.globalAlpha = 0.3;
     oCtx.drawImage(this.glowCanvas, 0, 0, out.width, out.height);
 
     return out.toDataURL('image/png');
@@ -630,9 +566,11 @@ export class GenerativeEngine {
     this.accCtx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     this.ctx.fillStyle = '#000';
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-    this.particles = [];
-    this.tendrils = [];
+    this.activeFlows = [];
+    this.flows = [];
+    this.bursts = [];
     this.cursorX = this.canvas.width / 2;
     this.cursorY = this.canvas.height / 2;
+    this.totalDrawn = 0;
   }
 }

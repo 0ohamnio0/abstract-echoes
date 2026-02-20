@@ -1,14 +1,14 @@
 export interface AudioFeatures {
-  volume: number;        // 0-1
-  bass: number;          // 0-1
-  mid: number;           // 0-1
-  treble: number;        // 0-1
+  volume: number;
+  bass: number;
+  mid: number;
+  treble: number;
   frequencies: Uint8Array;
   waveform: Uint8Array;
-  pitch: number;         // estimated dominant frequency
+  pitch: number;
   isSpeaking: boolean;
-  isSnap: boolean;       // transient percussive sound detected
-  spectralCentroid: number; // brightness of sound
+  isSnap: boolean;
+  spectralCentroid: number;
 }
 
 export class AudioAnalyzer {
@@ -19,20 +19,34 @@ export class AudioAnalyzer {
   private waveformData: Uint8Array = new Uint8Array(0);
   private prevVolume = 0;
   private snapCooldown = 0;
+  private volumeHistory: number[] = [];
 
   async start(): Promise<void> {
     this.context = new AudioContext();
     if (this.context.state === 'suspended') {
       await this.context.resume();
     }
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: true,
+      }
+    });
     const source = this.context.createMediaStreamSource(this.stream);
+    
+    // Add a gain node to boost input
+    const gainNode = this.context.createGain();
+    gainNode.gain.value = 2.5;
+    source.connect(gainNode);
+    
     this.analyser = this.context.createAnalyser();
     this.analyser.fftSize = 2048;
-    this.analyser.smoothingTimeConstant = 0.75;
-    this.analyser.minDecibels = -90;
+    this.analyser.smoothingTimeConstant = 0.6;
+    this.analyser.minDecibels = -100;
     this.analyser.maxDecibels = -10;
-    source.connect(this.analyser);
+    gainNode.connect(this.analyser);
+    
     this.frequencyData = new Uint8Array(this.analyser.frequencyBinCount);
     this.waveformData = new Uint8Array(this.analyser.frequencyBinCount);
   }
@@ -63,36 +77,42 @@ export class AudioAnalyzer {
       if (v > maxVal) { maxVal = v; maxIdx = i; }
     }
 
-    const volume = totalSum / (len * 255);
-    const bass = bassSum / (bassEnd * 255);
-    const mid = midSum / ((midEnd - bassEnd) * 255);
-    const treble = trebleSum / ((len - midEnd) * 255);
+    const rawVolume = totalSum / (len * 255);
+    // Boost and smooth volume
+    const volume = Math.min(1, rawVolume * 3);
+    
+    this.volumeHistory.push(volume);
+    if (this.volumeHistory.length > 10) this.volumeHistory.shift();
+    
+    const bass = Math.min(1, (bassSum / (bassEnd * 255)) * 3);
+    const mid = Math.min(1, (midSum / ((midEnd - bassEnd) * 255)) * 4);
+    const treble = Math.min(1, (trebleSum / ((len - midEnd) * 255)) * 5);
     const sampleRate = this.context?.sampleRate || 44100;
     const pitch = (maxIdx * sampleRate) / (this.analyser.fftSize);
     const spectralCentroid = totalSum > 0 ? weightedSum / totalSum / len : 0;
 
-    // Snap detection: sudden volume spike + high treble + high spectral centroid
+    // Snap detection
     const volumeDelta = volume - this.prevVolume;
     this.prevVolume = volume;
     if (this.snapCooldown > 0) this.snapCooldown--;
 
     const isSnap = this.snapCooldown === 0 &&
-      volumeDelta > 0.08 &&
-      treble > bass * 1.5 &&
-      spectralCentroid > 0.3 &&
-      volume > 0.05;
+      volumeDelta > 0.12 &&
+      treble > bass * 1.2 &&
+      spectralCentroid > 0.25 &&
+      volume > 0.08;
 
-    if (isSnap) this.snapCooldown = 15; // ~250ms cooldown at 60fps
+    if (isSnap) this.snapCooldown = 15;
 
     return {
       volume,
-      bass: Math.min(1, bass * 2),
-      mid: Math.min(1, mid * 3),
-      treble: Math.min(1, treble * 4),
+      bass,
+      mid,
+      treble,
       frequencies: this.frequencyData,
       waveform: this.waveformData,
       pitch,
-      isSpeaking: volume > 0.01,
+      isSpeaking: volume > 0.005,
       isSnap,
       spectralCentroid,
     };
