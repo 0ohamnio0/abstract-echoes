@@ -77,7 +77,8 @@ export default function TuningPanel({ params, onChange }: TuningPanelProps) {
             {openSections.has(section.key) && (
               <div className="px-3 pb-3 space-y-3">
                 {section.keys.map(key => {
-                  const def = (params as any)[key] as ParamDef;
+                  const def = (params as any)[key] as ParamDef | undefined;
+                  if (!def) return null;
                   return (
                     <div key={key} className="space-y-1">
                       <div className="flex justify-between items-center">
