@@ -1,6 +1,20 @@
 import { AudioFeatures, SoundType } from './audioAnalyzer';
 import { ParamValues } from './tuningParams';
 
+// Simple 2D Perlin-like noise (value noise with smoothstep)
+const _noiseP: number[] = [];
+for (let i = 0; i < 512; i++) _noiseP[i] = Math.random();
+function noise2D(x: number, y: number): number {
+  const xi = Math.floor(x) & 255, yi = Math.floor(y) & 255;
+  const xf = x - Math.floor(x), yf = y - Math.floor(y);
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const a = _noiseP[(xi + _noiseP[yi & 255]) & 255];
+  const b = _noiseP[(xi + 1 + _noiseP[yi & 255]) & 255];
+  const c = _noiseP[(xi + _noiseP[(yi + 1) & 255]) & 255];
+  const d = _noiseP[(xi + 1 + _noiseP[(yi + 1) & 255]) & 255];
+  return a + u * (b - a) + v * (c - a) + u * v * (a - b - c + d); // 0..1
+}
+
 const NEON_COLORS = [
   [330, 100, 65], [180, 100, 50], [120, 100, 55], [25, 100, 55],
   [220, 100, 60], [300, 100, 60], [55, 100, 55], [0, 100, 55],
@@ -171,29 +185,31 @@ export class GenerativeEngine {
     const margin = 80;
     const cx = margin + Math.random() * (this.canvas.width - margin * 2);
     const cy = margin + Math.random() * (this.canvas.height - margin * 2);
+    const n2 = noise2D(cx * 0.01, cy * 0.01); // 0..1 noise for size variation
+    const sizeMul = 0.4 + n2 * 0.6; // 0.4–1.0 range, max is 2/3 of original
     const [h, s, l] = this.pick(SNAP_PALETTE);
     const p = this.params;
-    const starSize = p?.snapStarburstSize ?? 40;
-    const ringCount = p?.snapRingCount ?? 2;
-    const shardCount = p?.snapShardCount ?? 12;
-    const stpSize = p?.snapStippleSize ?? 55;
+    const starSize = (p?.snapStarburstSize ?? 12) * sizeMul;
+    const ringCount = p?.snapRingCount ?? 1;
+    const shardCount = p?.snapShardCount ?? 4;
+    const stpSize = (p?.snapStippleSize ?? 8) * sizeMul;
 
     // Central flash
-    this.bursts.push({ x: cx, y: cy, hue: h, sat: s, light: l, size: starSize + f.volume * 60, life: 1, type: 'starburst', vx: 0, vy: 0 });
+    this.bursts.push({ x: cx, y: cy, hue: h, sat: s, light: l, size: starSize + f.volume * 30 * sizeMul, life: 1, type: 'starburst', vx: 0, vy: 0 });
     // Expanding rings
     for (let ri = 0; ri < ringCount; ri++) {
-      this.bursts.push({ x: cx, y: cy, hue: (h + ri * 40) % 360, sat: s, light: l, size: 5 - ri * 2, life: 1 + ri * 0.2, type: 'ring', vx: 0, vy: 0 });
+      this.bursts.push({ x: cx, y: cy, hue: (h + ri * 40) % 360, sat: s, light: l, size: (3 + ri * 1.5) * sizeMul, life: 1 + ri * 0.2, type: 'ring', vx: 0, vy: 0 });
     }
     // Ice shards radiating outward
-    const n = shardCount + Math.floor(Math.random() * 8);
+    const n = shardCount + Math.floor(noise2D(this.time, cx * 0.1) * 4);
     for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + Math.random() * 0.3;
-      const sp = 4 + Math.random() * 7;
+      const a = (i / n) * Math.PI * 2 + noise2D(i, this.time) * 0.5;
+      const sp = (3 + noise2D(cx * 0.05 + i, cy * 0.05) * 5) * sizeMul;
       const [sh, ss, sl] = this.pick(SNAP_PALETTE);
-      this.bursts.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, hue: sh, sat: ss, light: sl, size: 5 + Math.random() * 15, life: 1, type: 'shard' });
+      this.bursts.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, hue: sh, sat: ss, light: sl, size: (3 + noise2D(i * 0.3, this.time) * 8) * sizeMul, life: 1, type: 'shard' });
     }
     // Fine crystalline stipple
-    this.drawStipple(cx, cy, h, s, 90, stpSize, 80);
+    this.drawStipple(cx, cy, h, s, 90, stpSize, Math.floor(40 * sizeMul));
   }
 
   // ═══════════════════════════════════════════
@@ -207,44 +223,46 @@ export class GenerativeEngine {
   }
 
   private onClap(f: AudioFeatures) {
-    // Random position anywhere on canvas (with margin)
     const margin = 100;
     const cx = margin + Math.random() * (this.canvas.width - margin * 2);
     const cy = margin + Math.random() * (this.canvas.height - margin * 2);
+    const n2 = noise2D(cx * 0.01, cy * 0.01);
+    const sizeMul = 0.4 + n2 * 0.6;
     const [h, s, l] = this.pick(CLAP_PALETTE);
     const p = this.params;
-    const ringCount = p?.clapRingCount ?? 3;
-    const glowRadius = p?.clapGlowRadius ?? 60;
-    const baseSplatCount = p?.clapSplatCount ?? 15;
+    const ringCount = p?.clapRingCount ?? 1;
+    const glowRadius = ((p?.clapGlowRadius ?? 10) + f.volume * 40) * sizeMul;
+    const baseSplatCount = p?.clapSplatCount ?? 3;
 
-    // Multiple concentric shockwave rings
+    // Shockwave rings
     for (let i = 0; i < ringCount; i++) {
-      this.bursts.push({ x: cx, y: cy, hue: (h + i * 20) % 360, sat: s, light: l, size: 3 + i * 2, life: 1 + i * 0.15, type: 'ring', vx: 0, vy: 0 });
+      this.bursts.push({ x: cx, y: cy, hue: (h + i * 20) % 360, sat: s, light: l, size: (2 + i) * sizeMul, life: 1 + i * 0.15, type: 'ring', vx: 0, vy: 0 });
     }
 
-    // Warm central glow
+    // Central glow
     const ctx = this.accCtx;
     ctx.save();
-    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowRadius + f.volume * 80);
-    grad.addColorStop(0, `hsla(${h}, ${s}%, 95%, 0.6)`);
-    grad.addColorStop(0.3, `hsla(${h}, ${s}%, ${l}%, 0.3)`);
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowRadius);
+    grad.addColorStop(0, `hsla(${h}, ${s}%, 95%, 0.5)`);
+    grad.addColorStop(0.3, `hsla(${h}, ${s}%, ${l}%, 0.25)`);
     grad.addColorStop(1, `hsla(${h}, ${s}%, ${l}%, 0)`);
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.arc(cx, cy, glowRadius + f.volume * 80, 0, Math.PI * 2);
+    ctx.arc(cx, cy, glowRadius, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
-    // Paint splatter — irregular blobs radiating out
-    const splatCount = baseSplatCount + Math.floor(f.volume * 20);
+    // Paint splatter with noise variation
+    const splatCount = baseSplatCount + Math.floor(f.volume * 8);
     ctx.save();
     for (let i = 0; i < splatCount; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const dist = 10 + Math.random() * (40 + f.volume * 80);
+      const ni = noise2D(i * 0.5 + this.time, cx * 0.02);
+      const a = ni * Math.PI * 2;
+      const dist = (5 + ni * 25 + f.volume * 30) * sizeMul;
       const sx = cx + Math.cos(a) * dist;
       const sy = cy + Math.sin(a) * dist;
       const [bh, bs, bl] = this.pick(CLAP_PALETTE);
-      const blobSize = 2 + Math.random() * 8;
+      const blobSize = (1 + noise2D(i, this.time) * 4) * sizeMul;
       ctx.globalAlpha = 0.4 + Math.random() * 0.5;
       ctx.fillStyle = `hsl(${bh}, ${bs}%, ${bl}%)`;
       ctx.shadowColor = ctx.fillStyle;
@@ -282,20 +300,23 @@ export class GenerativeEngine {
     const margin = 80;
     const cx = margin + Math.random() * (this.canvas.width - margin * 2);
     const cy = margin + Math.random() * (this.canvas.height - margin * 2);
+    const n2 = noise2D(cx * 0.01, cy * 0.01);
+    const sizeMul = 0.4 + n2 * 0.6;
     const p = this.params;
-    const baseBubbleCount = p?.laughBubbleCount ?? 3;
-    const baseBubbleSize = p?.laughBubbleSize ?? 8;
-    const dotCount = p?.laughDotCount ?? 10;
-    const spiralProb = p?.laughSpiralProb ?? 0.15;
+    const baseBubbleCount = p?.laughBubbleCount ?? 1;
+    const baseBubbleSize = (p?.laughBubbleSize ?? 3) * sizeMul;
+    const dotCount = p?.laughDotCount ?? 3;
+    const spiralProb = p?.laughSpiralProb ?? 0.06;
 
     // Bouncing bubbles
-    const bubbleCount = baseBubbleCount + Math.floor(f.volume * 6);
+    const bubbleCount = baseBubbleCount + Math.floor(f.volume * 3);
     ctx.save();
     for (let i = 0; i < bubbleCount; i++) {
       const [h, s, l] = this.pick(LAUGH_PALETTE);
-      const bx = cx + (Math.random() - 0.5) * 120;
-      const by = cy + (Math.random() - 0.5) * 120;
-      const r = baseBubbleSize + Math.random() * 25 + f.volume * 15;
+      const ni = noise2D(i + this.time * 0.5, cx * 0.02);
+      const bx = cx + (ni - 0.5) * 80;
+      const by = cy + (noise2D(i * 1.7, cy * 0.02) - 0.5) * 80;
+      const r = baseBubbleSize + ni * 15 + f.volume * 8;
 
       // Filled bubble with gradient
       ctx.globalAlpha = 0.5 + Math.random() * 0.3;
@@ -320,26 +341,27 @@ export class GenerativeEngine {
     }
     ctx.restore();
 
-    // Tiny bouncing dots that scatter upward
+    // Tiny dots with noise-driven scatter
     ctx.save();
     for (let i = 0; i < dotCount; i++) {
       const [h, s, l] = this.pick(LAUGH_PALETTE);
-      const dx = cx + (Math.random() - 0.5) * 160;
-      const dy = cy + (Math.random() - 0.5) * 160 - f.volume * 40;
-      ctx.globalAlpha = 0.6 + Math.random() * 0.4;
+      const ni = noise2D(i * 0.7 + this.time, cy * 0.03);
+      const dx = cx + (ni - 0.5) * 100 * sizeMul;
+      const dy = cy + (noise2D(i * 1.3, cx * 0.03) - 0.5) * 100 * sizeMul - f.volume * 20;
+      ctx.globalAlpha = 0.5 + ni * 0.4;
       ctx.fillStyle = `hsl(${h}, ${s}%, ${l}%)`;
       ctx.shadowColor = ctx.fillStyle;
-      ctx.shadowBlur = 6;
+      ctx.shadowBlur = 4;
       ctx.beginPath();
-      ctx.arc(dx, dy, 1 + Math.random() * 3, 0, Math.PI * 2);
+      ctx.arc(dx, dy, (0.5 + ni * 2) * sizeMul, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
 
-    // Occasional playful mini-spiral
+    // Occasional mini-spiral
     if (Math.random() < spiralProb) {
       const [h, s, l] = this.pick(LAUGH_PALETTE);
-      this.drawSpiral(cx + (Math.random() - 0.5) * 80, cy + (Math.random() - 0.5) * 80, h, s, l, 15 + f.volume * 25);
+      this.drawSpiral(cx + (noise2D(this.time, cx) - 0.5) * 50, cy + (noise2D(this.time, cy) - 0.5) * 50, h, s, l, (10 + f.volume * 15) * sizeMul);
     }
   }
 
@@ -572,47 +594,6 @@ export class GenerativeEngine {
     this.ctx.drawImage(this.glowCanvas, 0, 0, this.canvas.width, this.canvas.height);
     this.ctx.restore();
 
-    // Idle wave at the bottom
-    this.drawIdleWave();
-  }
-
-  private drawIdleWave() {
-    const ctx = this.ctx;
-    const w = this.canvas.width;
-    const h = this.canvas.height;
-    const waveHeight = 40;
-    const baseY = h - 60;
-
-    ctx.save();
-    // Draw 3 layered waves with different speeds and colors
-    const waves = [
-      { speed: 0.3, freq: 0.003, amp: waveHeight, color: [270, 60, 40], alpha: 0.12 },
-      { speed: 0.5, freq: 0.005, amp: waveHeight * 0.7, color: [200, 80, 45], alpha: 0.10 },
-      { speed: 0.8, freq: 0.008, amp: waveHeight * 0.4, color: [330, 70, 50], alpha: 0.08 },
-    ];
-
-    for (const wave of waves) {
-      const [wh, ws, wl] = wave.color;
-      ctx.beginPath();
-      ctx.moveTo(0, h);
-      for (let x = 0; x <= w; x += 4) {
-        const y = baseY
-          + Math.sin(x * wave.freq + this.time * wave.speed) * wave.amp
-          + Math.sin(x * wave.freq * 1.7 + this.time * wave.speed * 0.6 + 1.3) * wave.amp * 0.4
-          + Math.sin(x * wave.freq * 0.5 + this.time * wave.speed * 1.3 + 2.7) * wave.amp * 0.25;
-        ctx.lineTo(x, y);
-      }
-      ctx.lineTo(w, h);
-      ctx.closePath();
-
-      const grad = ctx.createLinearGradient(0, baseY - wave.amp, 0, h);
-      grad.addColorStop(0, `hsla(${wh}, ${ws}%, ${wl}%, ${wave.alpha})`);
-      grad.addColorStop(0.5, `hsla(${wh}, ${ws}%, ${wl + 10}%, ${wave.alpha * 0.6})`);
-      grad.addColorStop(1, `hsla(${wh}, ${ws}%, ${wl}%, 0)`);
-      ctx.fillStyle = grad;
-      ctx.fill();
-    }
-    ctx.restore();
   }
 
   toDataURL(): string {
