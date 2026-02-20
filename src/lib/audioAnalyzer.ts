@@ -35,16 +35,16 @@ export class AudioAnalyzer {
     });
     const source = this.context.createMediaStreamSource(this.stream);
     
-    // Add a gain node to boost input
+    // Boost input significantly
     const gainNode = this.context.createGain();
-    gainNode.gain.value = 2.5;
+    gainNode.gain.value = 4.0;
     source.connect(gainNode);
     
     this.analyser = this.context.createAnalyser();
-    this.analyser.fftSize = 2048;
-    this.analyser.smoothingTimeConstant = 0.6;
+    this.analyser.fftSize = 1024;
+    this.analyser.smoothingTimeConstant = 0.5;
     this.analyser.minDecibels = -100;
-    this.analyser.maxDecibels = -10;
+    this.analyser.maxDecibels = -5;
     gainNode.connect(this.analyser);
     
     this.frequencyData = new Uint8Array(this.analyser.frequencyBinCount);
@@ -78,15 +78,15 @@ export class AudioAnalyzer {
     }
 
     const rawVolume = totalSum / (len * 255);
-    // Boost and smooth volume
-    const volume = Math.min(1, rawVolume * 3);
+    // Aggressively boost volume for sensitivity
+    const volume = Math.min(1, rawVolume * 5);
     
     this.volumeHistory.push(volume);
     if (this.volumeHistory.length > 10) this.volumeHistory.shift();
     
-    const bass = Math.min(1, (bassSum / (bassEnd * 255)) * 3);
-    const mid = Math.min(1, (midSum / ((midEnd - bassEnd) * 255)) * 4);
-    const treble = Math.min(1, (trebleSum / ((len - midEnd) * 255)) * 5);
+    const bass = Math.min(1, (bassSum / (bassEnd * 255)) * 5);
+    const mid = Math.min(1, (midSum / ((midEnd - bassEnd) * 255)) * 6);
+    const treble = Math.min(1, (trebleSum / ((len - midEnd) * 255)) * 7);
     const sampleRate = this.context?.sampleRate || 44100;
     const pitch = (maxIdx * sampleRate) / (this.analyser.fftSize);
     const spectralCentroid = totalSum > 0 ? weightedSum / totalSum / len : 0;
