@@ -50,12 +50,12 @@ export function createDefaultParams(): TuningParams {
 
     // Voice
     voiceFlowCount:   { value: 3,    min: 1,    max: 8,    step: 1,    label: '흐름 라인 수' },
-    voiceLineSize:    { value: 2,    min: 0.2,  max: 8,    step: 0.1,  label: '라인 굵기 배율' },
-    voiceCursorSpeed: { value: 1,    min: 0.2,  max: 3,    step: 0.1,  label: '커서 이동 속도' },
-    voiceStippleProb: { value: 0.12, min: 0,    max: 0.5,  step: 0.01, label: '점묘 확률' },
-    voiceStippleSize: { value: 15,   min: 5,    max: 60,   step: 1,    label: '점묘 크기' },
-    voiceNebulaProb:  { value: 0.03, min: 0,    max: 0.2,  step: 0.005,label: '성운 확률' },
-    voiceSpiralProb:  { value: 0.008,min: 0,    max: 0.05, step: 0.001,label: '나선 확률' },
+    voiceLineSize:    { value: 2.4,  min: 0.2,  max: 8,    step: 0.1,  label: '라인 굵기 배율' },
+    voiceCursorSpeed: { value: 1.1,  min: 0.2,  max: 3,    step: 0.1,  label: '커서 이동 속도' },
+    voiceStippleProb: { value: 0.21, min: 0,    max: 0.5,  step: 0.01, label: '점묘 확률' },
+    voiceStippleSize: { value: 37,   min: 5,    max: 60,   step: 1,    label: '점묘 크기' },
+    voiceNebulaProb:  { value: 0.025,min: 0,    max: 0.2,  step: 0.005,label: '성운 확률' },
+    voiceSpiralProb:  { value: 0.009,min: 0,    max: 0.05, step: 0.001,label: '나선 확률' },
     voicePitchSensitivity: { value: 1.8, min: 0, max: 5, step: 0.1, label: '피치 방향 민감도' },
 
     // Snap
