@@ -729,7 +729,7 @@ export class GenerativeEngine {
 
   }
 
-  toDataURL(): string {
+  private composited(): HTMLCanvasElement {
     const out = document.createElement('canvas');
     out.width = this.canvas.width; out.height = this.canvas.height;
     const o = out.getContext('2d')!;
@@ -739,6 +739,25 @@ export class GenerativeEngine {
     this.glowCtx.filter = 'blur(6px)'; this.glowCtx.drawImage(this.glowCanvas, 0, 0); this.glowCtx.filter = 'none';
     o.globalCompositeOperation = 'lighter'; o.globalAlpha = 0.3;
     o.drawImage(this.glowCanvas, 0, 0, out.width, out.height);
+    return out;
+  }
+
+  toDataURL(): string {
+    return this.composited().toDataURL('image/png');
+  }
+
+  toPortraitDataURL(w = 1080, h = 1920): string {
+    const src = this.composited();
+    const out = document.createElement('canvas');
+    out.width = w; out.height = h;
+    const o = out.getContext('2d')!;
+    // center-crop from landscape source
+    const srcRatio = w / h; // target aspect
+    let sw = src.width, sh = src.width / srcRatio;
+    if (sh > src.height) { sh = src.height; sw = src.height * srcRatio; }
+    const sx = (src.width - sw) / 2, sy = (src.height - sh) / 2;
+    o.fillStyle = '#000'; o.fillRect(0, 0, w, h);
+    o.drawImage(src, sx, sy, sw, sh, 0, 0, w, h);
     return out.toDataURL('image/png');
   }
 
