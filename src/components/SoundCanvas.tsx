@@ -118,14 +118,26 @@ export default function SoundCanvas() {
     engineRef.current?.clear();
   }, []);
 
-  const save = useCallback(() => {
-    if (!engineRef.current) return;
-    const dataUrl = engineRef.current.toDataURL();
+  const [showSaveMenu, setShowSaveMenu] = useState(false);
+
+  const downloadDataUrl = useCallback((dataUrl: string, suffix: string) => {
     const link = document.createElement('a');
-    link.download = `sound-painting-${Date.now()}.png`;
+    link.download = `sound-painting-${suffix}-${Date.now()}.png`;
     link.href = dataUrl;
     link.click();
   }, []);
+
+  const saveLandscape = useCallback(() => {
+    if (!engineRef.current) return;
+    downloadDataUrl(engineRef.current.toDataURL(), 'landscape');
+    setShowSaveMenu(false);
+  }, [downloadDataUrl]);
+
+  const savePortrait = useCallback(() => {
+    if (!engineRef.current) return;
+    downloadDataUrl(engineRef.current.toPortraitDataURL(), 'wallpaper');
+    setShowSaveMenu(false);
+  }, [downloadDataUrl]);
 
   const handleSensitivityChange = useCallback((val: number) => {
     setSensitivity(val);
@@ -171,9 +183,21 @@ export default function SoundCanvas() {
             <button onClick={clear} className="px-6 py-3 rounded-full bg-muted border border-border text-muted-foreground hover:text-foreground transition-all duration-300 text-sm tracking-widest uppercase font-light">
               초기화
             </button>
-            <button onClick={save} className="px-6 py-3 rounded-full bg-primary/20 border border-primary/40 text-primary hover:bg-primary/30 transition-all duration-300 glow-pink text-sm tracking-widest uppercase font-light">
-              저장
-            </button>
+            <div className="relative">
+              <button onClick={() => setShowSaveMenu(!showSaveMenu)} className="px-6 py-3 rounded-full bg-primary/20 border border-primary/40 text-primary hover:bg-primary/30 transition-all duration-300 glow-pink text-sm tracking-widest uppercase font-light">
+                저장
+              </button>
+              {showSaveMenu && (
+                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-card/90 backdrop-blur border border-border rounded-lg p-2 flex flex-col gap-1 w-48 z-30">
+                  <button onClick={saveLandscape} className="text-xs text-left px-3 py-2 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                    🖥️ 원본 (1900×1200)
+                  </button>
+                  <button onClick={savePortrait} className="text-xs text-left px-3 py-2 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                    📱 폰 배경화면 (1080×1920)
+                  </button>
+                </div>
+              )}
+            </div>
           </>
         )}
         <button
