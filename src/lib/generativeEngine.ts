@@ -155,7 +155,7 @@ export class GenerativeEngine {
     const spiralProb = p?.voiceSpiralProb ?? 0.008;
 
     while (this.activeFlows.length < flowCount) {
-      const style: FlowLine['style'] = this.activeFlows.length === 0 ? 'smooth' : this.activeFlows.length === 1 ? 'dotted' : 'glow';
+      const style: FlowLine['style'] = this.activeFlows.length === 0 ? 'smooth' : this.activeFlows.length === 1 ? 'dotted' : 'smooth';
       this.activeFlows.push({ points: [], life: 1, style });
     }
     for (let fi = 0; fi < this.activeFlows.length; fi++) {
