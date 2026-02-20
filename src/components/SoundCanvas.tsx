@@ -42,6 +42,15 @@ export default function SoundCanvas() {
     engineRef.current?.clear();
   }, []);
 
+  const save = useCallback(() => {
+    if (!engineRef.current) return;
+    const dataUrl = engineRef.current.toDataURL();
+    const link = document.createElement('a');
+    link.download = `sound-painting-${Date.now()}.png`;
+    link.href = dataUrl;
+    link.click();
+  }, []);
+
   useEffect(() => {
     return () => {
       cancelAnimationFrame(animFrameRef.current);
@@ -81,6 +90,12 @@ export default function SoundCanvas() {
               className="px-6 py-3 rounded-full bg-muted border border-border text-muted-foreground hover:text-foreground transition-all duration-300 text-sm tracking-widest uppercase font-light"
             >
               초기화
+            </button>
+            <button
+              onClick={save}
+              className="px-6 py-3 rounded-full bg-primary/20 border border-primary/40 text-primary hover:bg-primary/30 transition-all duration-300 glow-pink text-sm tracking-widest uppercase font-light"
+            >
+              저장
             </button>
           </>
         )}

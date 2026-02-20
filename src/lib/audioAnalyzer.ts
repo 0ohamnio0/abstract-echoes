@@ -7,6 +7,8 @@ export interface AudioFeatures {
   waveform: Uint8Array;
   pitch: number;         // estimated dominant frequency
   isSpeaking: boolean;
+  isSnap: boolean;       // transient percussive sound detected
+  spectralCentroid: number; // brightness of sound
 }
 
 export class AudioAnalyzer {
@@ -15,6 +17,8 @@ export class AudioAnalyzer {
   private stream: MediaStream | null = null;
   private frequencyData: Uint8Array = new Uint8Array(0);
   private waveformData: Uint8Array = new Uint8Array(0);
+  private prevVolume = 0;
+  private snapCooldown = 0;
 
   async start(): Promise<void> {
     this.context = new AudioContext();
@@ -35,7 +39,7 @@ export class AudioAnalyzer {
 
   getFeatures(): AudioFeatures {
     if (!this.analyser) {
-      return { volume: 0, bass: 0, mid: 0, treble: 0, frequencies: new Uint8Array(0), waveform: new Uint8Array(0), pitch: 0, isSpeaking: false };
+      return { volume: 0, bass: 0, mid: 0, treble: 0, frequencies: new Uint8Array(0), waveform: new Uint8Array(0), pitch: 0, isSpeaking: false, isSnap: false, spectralCentroid: 0 };
     }
 
     this.analyser.getByteFrequencyData(this.frequencyData as any);
@@ -47,10 +51,12 @@ export class AudioAnalyzer {
 
     let bassSum = 0, midSum = 0, trebleSum = 0, totalSum = 0;
     let maxVal = 0, maxIdx = 0;
+    let weightedSum = 0;
 
     for (let i = 0; i < len; i++) {
       const v = this.frequencyData[i];
       totalSum += v;
+      weightedSum += v * i;
       if (i < bassEnd) bassSum += v;
       else if (i < midEnd) midSum += v;
       else trebleSum += v;
@@ -63,6 +69,20 @@ export class AudioAnalyzer {
     const treble = trebleSum / ((len - midEnd) * 255);
     const sampleRate = this.context?.sampleRate || 44100;
     const pitch = (maxIdx * sampleRate) / (this.analyser.fftSize);
+    const spectralCentroid = totalSum > 0 ? weightedSum / totalSum / len : 0;
+
+    // Snap detection: sudden volume spike + high treble + high spectral centroid
+    const volumeDelta = volume - this.prevVolume;
+    this.prevVolume = volume;
+    if (this.snapCooldown > 0) this.snapCooldown--;
+
+    const isSnap = this.snapCooldown === 0 &&
+      volumeDelta > 0.08 &&
+      treble > bass * 1.5 &&
+      spectralCentroid > 0.3 &&
+      volume > 0.05;
+
+    if (isSnap) this.snapCooldown = 15; // ~250ms cooldown at 60fps
 
     return {
       volume,
@@ -73,6 +93,8 @@ export class AudioAnalyzer {
       waveform: this.waveformData,
       pitch,
       isSpeaking: volume > 0.01,
+      isSnap,
+      spectralCentroid,
     };
   }
 
