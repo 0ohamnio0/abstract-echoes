@@ -16,7 +16,7 @@ const SECTIONS: { key: SectionKey; label: string; icon: string; keys: string[] }
   },
   {
     key: 'voice', label: '목소리 시각화', icon: '🎤',
-    keys: ['voiceFlowCount', 'voiceLineSize', 'voiceCursorSpeed', 'voiceStippleProb', 'voiceStippleSize', 'voiceNebulaProb', 'voiceSpiralProb'],
+    keys: ['voiceFlowCount', 'voiceLineSize', 'voiceCursorSpeed', 'voicePitchSensitivity', 'voiceStippleProb', 'voiceStippleSize', 'voiceNebulaProb', 'voiceSpiralProb'],
   },
   {
     key: 'snap', label: '스냅 시각화', icon: '✨',
