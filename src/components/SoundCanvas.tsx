@@ -1,6 +1,8 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { AudioAnalyzer, SoundType } from '@/lib/audioAnalyzer';
 import { GenerativeEngine } from '@/lib/generativeEngine';
+import { createDefaultParams, extractValues, TuningParams } from '@/lib/tuningParams';
+import TuningPanel from './TuningPanel';
 
 const CANVAS_WIDTH = 1900;
 const CANVAS_HEIGHT = 1200;
@@ -19,7 +21,27 @@ export default function SoundCanvas() {
   const [sensitivity, setSensitivity] = useState(1.0);
   const [threshold, setThreshold] = useState(0.05);
   const [showSettings, setShowSettings] = useState(false);
+  const [showTuning, setShowTuning] = useState(false);
+  const [tuningParams, setTuningParams] = useState<TuningParams>(createDefaultParams);
   const debugFrameRef = useRef(0);
+
+  const handleTuningChange = useCallback((key: string, value: number) => {
+    setTuningParams(prev => {
+      const next = { ...prev, [key]: { ...(prev as any)[key], value } };
+      // Apply to engine
+      if (engineRef.current) {
+        engineRef.current.params = extractValues(next);
+      }
+      // Apply classification params to analyzer's yamnet
+      if (key === 'yamnetScoreThreshold' && analyzerRef.current) {
+        (analyzerRef.current as any).yamnet.scoreThreshold = value;
+      }
+      if (key === 'yamnetMaxResults' && analyzerRef.current) {
+        (analyzerRef.current as any).yamnet.maxResults = value;
+      }
+      return next;
+    });
+  }, []);
 
   const loop = useCallback(() => {
     if (!analyzerRef.current || !engineRef.current) return;
@@ -46,14 +68,16 @@ export default function SoundCanvas() {
       analyzer.threshold = threshold;
       await analyzer.start();
       analyzerRef.current = analyzer;
-      engineRef.current = new GenerativeEngine(canvasRef.current);
+      const engine = new GenerativeEngine(canvasRef.current);
+      engine.params = extractValues(tuningParams);
+      engineRef.current = engine;
       setIsActive(true);
       animFrameRef.current = requestAnimationFrame(loop);
     } catch (e) {
       console.error('Microphone error:', e);
       alert('마이크 접근 권한이 필요합니다.');
     }
-  }, [loop, sensitivity, threshold]);
+  }, [loop, sensitivity, threshold, tuningParams]);
 
   const stop = useCallback(() => {
     cancelAnimationFrame(animFrameRef.current);
@@ -131,6 +155,13 @@ export default function SoundCanvas() {
         >
           ⚙
         </button>
+        <button
+          onClick={() => setShowTuning(!showTuning)}
+          className="w-10 h-10 rounded-full bg-muted border border-border text-muted-foreground hover:text-foreground transition-all duration-300 flex items-center justify-center text-lg"
+          title="튜닝 패널"
+        >
+          🎛️
+        </button>
       </div>
 
       {/* Settings panel */}
@@ -184,6 +215,11 @@ export default function SoundCanvas() {
         </div>
       )}
 
+      {/* Tuning panel */}
+      {showTuning && (
+        <TuningPanel params={tuningParams} onChange={handleTuningChange} />
+      )}
+
       {/* Title */}
       {!isActive && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
@@ -205,7 +241,6 @@ export default function SoundCanvas() {
               {debugSpeaking ? '인식 중' : '대기 중'}
             </span>
           </div>
-          {/* Sound type indicator */}
           {debugSpeaking && debugSoundType !== 'silence' && (
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] font-mono tracking-wider px-2 py-0.5 rounded-full border" style={{
