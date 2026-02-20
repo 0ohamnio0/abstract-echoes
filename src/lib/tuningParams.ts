@@ -22,6 +22,7 @@ export interface TuningParams {
   voiceStippleSize: ParamDef;
   voiceNebulaProb: ParamDef;
   voiceSpiralProb: ParamDef;
+  voicePitchSensitivity: ParamDef;
 
   // === Snap visualization ===
   snapStarburstSize: ParamDef;
@@ -55,6 +56,7 @@ export function createDefaultParams(): TuningParams {
     voiceStippleSize: { value: 15,   min: 5,    max: 60,   step: 1,    label: '점묘 크기' },
     voiceNebulaProb:  { value: 0.03, min: 0,    max: 0.2,  step: 0.005,label: '성운 확률' },
     voiceSpiralProb:  { value: 0.008,min: 0,    max: 0.05, step: 0.001,label: '나선 확률' },
+    voicePitchSensitivity: { value: 1.8, min: 0, max: 5, step: 0.1, label: '피치 방향 민감도' },
 
     // Snap
     snapStarburstSize: { value: 12, min: 5,  max: 120, step: 5, label: '폭발 크기' },

@@ -106,7 +106,8 @@ export class GenerativeEngine {
       const speed = (1.5 + features.volume * 6) * speedMul;
       // Pitch drives horizontal direction: high pitch → left, low pitch → right
       const pitchNorm = Math.max(0, Math.min(1, (features.pitch - 80) / 500));
-      const pitchBias = (pitchNorm - 0.5) * -speed * 1.8;
+      const pitchSens = this.params?.voicePitchSensitivity ?? 1.8;
+      const pitchBias = (pitchNorm - 0.5) * -speed * pitchSens;
       this.cursorX += Math.sin(this.time * 0.43 + this.seedX) * speed * 0.4 + pitchBias;
       this.cursorY += Math.cos(this.time * 0.37 + this.seedY) * speed + Math.cos(this.time * 0.9 + this.seedY * 2) * speed * 0.3 + Math.sin(this.time * 0.21) * speed * 0.5;
       const m = 60;
