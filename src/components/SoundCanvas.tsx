@@ -18,8 +18,8 @@ export default function SoundCanvas() {
   const [debugSoundType, setDebugSoundType] = useState<SoundType>('silence');
   const [yamnetLabel, setYamnetLabel] = useState('');
   const [yamnetConfidence, setYamnetConfidence] = useState(0);
-  const [sensitivity, setSensitivity] = useState(1.0);
-  const [threshold, setThreshold] = useState(0.05);
+  const [sensitivity, setSensitivity] = useState(0.7);
+  const [threshold, setThreshold] = useState(0.04);
   const [showSettings, setShowSettings] = useState(false);
   const [showTuning, setShowTuning] = useState(false);
   const [tuningParams, setTuningParams] = useState<TuningParams>(createDefaultParams);
