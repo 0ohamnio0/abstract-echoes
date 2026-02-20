@@ -123,6 +123,7 @@ export class GenerativeEngine {
     } else {
       this.framesSinceSpeaking++;
       if (this.framesSinceSpeaking > 10) this.endActiveFlows();
+      // No cursor movement when not speaking
     }
 
     this.updateBursts();
@@ -512,18 +513,14 @@ export class GenerativeEngine {
       const color = `hsl(${b.hue}, ${b.sat}%, ${b.light}%)`;
 
       if (b.type === 'starburst') {
-        ctx.shadowColor = color; ctx.shadowBlur = 50;
+        // Soft glow only, no white ring or rays
+        ctx.shadowColor = color; ctx.shadowBlur = 30;
         const grad = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.size);
-        grad.addColorStop(0, `hsla(${b.hue}, ${b.sat}%, 98%, ${b.life})`);
-        grad.addColorStop(0.15, `hsla(${b.hue}, ${b.sat}%, ${b.light}%, ${b.life * 0.7})`);
+        grad.addColorStop(0, `hsla(${b.hue}, ${b.sat}%, ${Math.min(100, b.light + 15)}%, ${b.life * 0.6})`);
+        grad.addColorStop(0.4, `hsla(${b.hue}, ${b.sat}%, ${b.light}%, ${b.life * 0.3})`);
         grad.addColorStop(1, `hsla(${b.hue}, ${b.sat}%, ${b.light}%, 0)`);
         ctx.fillStyle = grad;
         ctx.beginPath(); ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = `hsla(0, 0%, 100%, ${b.life * 0.4})`; ctx.lineWidth = 1;
-        for (let a = 0; a < 8; a++) {
-          const angle = (a / 8) * Math.PI * 2 + this.time;
-          ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + Math.cos(angle) * b.size * 1.8, b.y + Math.sin(angle) * b.size * 1.8); ctx.stroke();
-        }
       } else if (b.type === 'ring') {
         ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.shadowColor = color; ctx.shadowBlur = 20;
         ctx.beginPath(); ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2); ctx.stroke();
