@@ -193,7 +193,7 @@ export default function SoundCanvas() {
                     🖥️ 원본 (1900×1200)
                   </button>
                   <button onClick={savePortrait} className="text-xs text-left px-3 py-2 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
-                    📱 폰 배경화면 (1080×1920)
+                    📱 폰 배경화면 (1080×2340)
                   </button>
                 </div>
               )}
