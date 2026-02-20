@@ -14,12 +14,17 @@ export interface AudioFeatures {
 export class AudioAnalyzer {
   private context: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
+  private gainNode: GainNode | null = null;
   private stream: MediaStream | null = null;
   private frequencyData: Uint8Array = new Uint8Array(0);
   private waveformData: Uint8Array = new Uint8Array(0);
   private prevVolume = 0;
   private snapCooldown = 0;
-  private volumeHistory: number[] = [];
+
+  /** User-adjustable sensitivity: 0.1 (low) to 5.0 (high) */
+  sensitivity = 1.0;
+  /** Volume threshold for isSpeaking */
+  threshold = 0.02;
 
   async start(): Promise<void> {
     this.context = new AudioContext();
@@ -27,28 +32,34 @@ export class AudioAnalyzer {
       await this.context.resume();
     }
     this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: true,
-      }
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true }
     });
     const source = this.context.createMediaStreamSource(this.stream);
-    
-    // Boost input significantly
-    const gainNode = this.context.createGain();
-    gainNode.gain.value = 4.0;
-    source.connect(gainNode);
-    
+
+    this.gainNode = this.context.createGain();
+    this.gainNode.gain.value = this.sensitivity * 2;
+    source.connect(this.gainNode);
+
     this.analyser = this.context.createAnalyser();
     this.analyser.fftSize = 1024;
     this.analyser.smoothingTimeConstant = 0.5;
     this.analyser.minDecibels = -100;
     this.analyser.maxDecibels = -5;
-    gainNode.connect(this.analyser);
-    
+    this.gainNode.connect(this.analyser);
+
     this.frequencyData = new Uint8Array(this.analyser.frequencyBinCount);
     this.waveformData = new Uint8Array(this.analyser.frequencyBinCount);
+  }
+
+  setSensitivity(value: number) {
+    this.sensitivity = value;
+    if (this.gainNode) {
+      this.gainNode.gain.value = value * 2;
+    }
+  }
+
+  setThreshold(value: number) {
+    this.threshold = value;
   }
 
   getFeatures(): AudioFeatures {
@@ -78,41 +89,33 @@ export class AudioAnalyzer {
     }
 
     const rawVolume = totalSum / (len * 255);
-    // Aggressively boost volume for sensitivity
-    const volume = Math.min(1, rawVolume * 5);
-    
-    this.volumeHistory.push(volume);
-    if (this.volumeHistory.length > 10) this.volumeHistory.shift();
-    
-    const bass = Math.min(1, (bassSum / (bassEnd * 255)) * 5);
-    const mid = Math.min(1, (midSum / ((midEnd - bassEnd) * 255)) * 6);
-    const treble = Math.min(1, (trebleSum / ((len - midEnd) * 255)) * 7);
+    const volume = Math.min(1, rawVolume * 3);
+
+    const bass = Math.min(1, (bassSum / (bassEnd * 255)) * 4);
+    const mid = Math.min(1, (midSum / ((midEnd - bassEnd) * 255)) * 5);
+    const treble = Math.min(1, (trebleSum / ((len - midEnd) * 255)) * 6);
     const sampleRate = this.context?.sampleRate || 44100;
-    const pitch = (maxIdx * sampleRate) / (this.analyser.fftSize);
+    const pitch = (maxIdx * sampleRate) / this.analyser.fftSize;
     const spectralCentroid = totalSum > 0 ? weightedSum / totalSum / len : 0;
 
-    // Snap detection
     const volumeDelta = volume - this.prevVolume;
     this.prevVolume = volume;
     if (this.snapCooldown > 0) this.snapCooldown--;
 
     const isSnap = this.snapCooldown === 0 &&
-      volumeDelta > 0.12 &&
+      volumeDelta > 0.15 &&
       treble > bass * 1.2 &&
       spectralCentroid > 0.25 &&
-      volume > 0.08;
+      volume > 0.1;
 
     if (isSnap) this.snapCooldown = 15;
 
     return {
-      volume,
-      bass,
-      mid,
-      treble,
+      volume, bass, mid, treble,
       frequencies: this.frequencyData,
       waveform: this.waveformData,
       pitch,
-      isSpeaking: volume > 0.005,
+      isSpeaking: volume > this.threshold,
       isSnap,
       spectralCentroid,
     };
@@ -123,6 +126,7 @@ export class AudioAnalyzer {
     this.context?.close();
     this.context = null;
     this.analyser = null;
+    this.gainNode = null;
     this.stream = null;
   }
 }
