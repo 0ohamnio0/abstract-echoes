@@ -176,54 +176,36 @@ export class GenerativeEngine {
   }
 
   // ═══════════════════════════════════════════
-  //  PITCH SPORE → bioluminescent particles positioned by pitch height
+  //  PITCH STROKE → thin horizontal line stamped at pitch height
   // ═══════════════════════════════════════════
   private drawPitchSpore(f: AudioFeatures, h: number, s: number, l: number) {
-    if (f.volume < 0.02) return; // skip if too quiet
+    if (f.volume < 0.02) return;
 
     const ctx = this.accCtx;
-    // Map pitch (typically 80-600Hz) to vertical position
-    // High pitch → near top, low pitch → near bottom
-    const pitchNorm = Math.max(0, Math.min(1, (f.pitch - 80) / 500)); // 0=low, 1=high
+    const pitchNorm = Math.max(0, Math.min(1, (f.pitch - 80) / 500));
     const margin = 80;
     const yTarget = this.canvas.height - margin - pitchNorm * (this.canvas.height - margin * 2);
     const xPos = margin + noise2D(this.time * 0.5, f.pitch * 0.01) * (this.canvas.width - margin * 2);
 
-    // Noise-driven variation
     const n = noise2D(xPos * 0.005, this.time * 0.3);
-    const sporeSize = (3 + n * 8 + f.volume * 10) * 0.7;
-    const sporeHue = (h + pitchNorm * 60) % 360;
+    const strokeHue = (h + pitchNorm * 60) % 360;
+    const halfLen = (15 + n * 25 + f.volume * 30) * 0.5; // 1/2 scale
+    const angle = noise2D(this.time * 0.15, f.pitch * 0.02) * 0.3; // slight tilt
 
     ctx.save();
+    ctx.globalAlpha = 0.25 + f.volume * 0.35;
+    ctx.strokeStyle = `hsl(${strokeHue}, ${s}%, ${Math.min(100, l + 10)}%)`;
+    ctx.lineWidth = 0.5 + f.volume * 1;
+    ctx.shadowColor = ctx.strokeStyle;
+    ctx.shadowBlur = 4;
+    ctx.lineCap = 'round';
 
-    // Core spore glow
-    const grad = ctx.createRadialGradient(xPos, yTarget, 0, xPos, yTarget, sporeSize * 2);
-    grad.addColorStop(0, `hsla(${sporeHue}, ${s}%, ${Math.min(100, l + 20)}%, ${0.4 + f.volume * 0.4})`);
-    grad.addColorStop(0.5, `hsla(${sporeHue}, ${s}%, ${l}%, ${0.15 + f.volume * 0.15})`);
-    grad.addColorStop(1, `hsla(${sporeHue}, ${s}%, ${l}%, 0)`);
-    ctx.fillStyle = grad;
-    ctx.shadowColor = `hsl(${sporeHue}, ${s}%, ${l}%)`;
-    ctx.shadowBlur = 12;
+    const dx = Math.cos(angle) * halfLen;
+    const dy = Math.sin(angle) * halfLen;
     ctx.beginPath();
-    ctx.arc(xPos, yTarget, sporeSize * 2, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Tiny filament tendrils radiating from spore
-    const tendrilCount = 3 + Math.floor(n * 4);
-    ctx.globalAlpha = 0.3 + f.volume * 0.3;
-    ctx.strokeStyle = `hsl(${sporeHue}, ${s}%, ${Math.min(100, l + 15)}%)`;
-    ctx.lineWidth = 0.5 + n * 0.5;
-    ctx.shadowBlur = 6;
-    for (let i = 0; i < tendrilCount; i++) {
-      const angle = noise2D(i * 1.3, this.time * 0.2) * Math.PI * 2;
-      const len = sporeSize * (1.5 + noise2D(i * 0.7, this.time * 0.4) * 3);
-      ctx.beginPath();
-      ctx.moveTo(xPos, yTarget);
-      const cpx = xPos + Math.cos(angle) * len * 0.6 + (noise2D(i, this.time) - 0.5) * len;
-      const cpy = yTarget + Math.sin(angle) * len * 0.6 + (noise2D(i + 5, this.time) - 0.5) * len;
-      ctx.quadraticCurveTo(cpx, cpy, xPos + Math.cos(angle) * len, yTarget + Math.sin(angle) * len);
-      ctx.stroke();
-    }
+    ctx.moveTo(xPos - dx, yTarget - dy);
+    ctx.lineTo(xPos + dx, yTarget + dy);
+    ctx.stroke();
 
     ctx.restore();
   }
