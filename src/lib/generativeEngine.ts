@@ -225,14 +225,15 @@ export class GenerativeEngine {
     const margin = 80;
     const cx = margin + Math.random() * (this.canvas.width - margin * 2);
     const cy = margin + Math.random() * (this.canvas.height - margin * 2);
-    const n2 = noise2D(cx * 0.01, cy * 0.01); // 0..1 noise for size variation
-    const sizeMul = 0.4 + n2 * 0.6; // 0.4–1.0 range, max is 2/3 of original
+    const n2 = noise2D(cx * 0.01, cy * 0.01);
+    const sizeMul = 0.4 + n2 * 0.6;
     const [h, s, l] = this.pick(SNAP_PALETTE);
     const p = this.params;
     const starSize = (p?.snapStarburstSize ?? 12) * sizeMul;
     const ringCount = p?.snapRingCount ?? 1;
     const shardCount = p?.snapShardCount ?? 4;
     const stpSize = (p?.snapStippleSize ?? 8) * sizeMul;
+    const ctx = this.accCtx;
 
     // Central flash
     this.bursts.push({ x: cx, y: cy, hue: h, sat: s, light: l, size: starSize + f.volume * 30 * sizeMul, life: 1, type: 'starburst', vx: 0, vy: 0 });
@@ -248,6 +249,36 @@ export class GenerativeEngine {
       const [sh, ss, sl] = this.pick(SNAP_PALETTE);
       this.bursts.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, hue: sh, sat: ss, light: sl, size: (3 + noise2D(i * 0.3, this.time) * 8) * sizeMul, life: 1, type: 'shard' });
     }
+
+    // Crystalline fracture lines — sharp geometric cracks radiating from center
+    ctx.save();
+    ctx.lineCap = 'round';
+    const crackCount = 3 + Math.floor(f.volume * 5);
+    for (let i = 0; i < crackCount; i++) {
+      const [ch, cs, cl] = this.pick(SNAP_PALETTE);
+      const angle = (i / crackCount) * Math.PI * 2 + noise2D(i * 2.1, this.time) * 0.8;
+      const len = (20 + noise2D(i, this.time * 0.5) * 40 + f.volume * 30) * sizeMul;
+      ctx.globalAlpha = 0.3 + f.volume * 0.4;
+      ctx.strokeStyle = `hsl(${ch}, ${cs}%, ${Math.min(100, cl + 20)}%)`;
+      ctx.lineWidth = (0.3 + noise2D(i * 0.7, this.time) * 1.2) * sizeMul;
+      ctx.shadowColor = ctx.strokeStyle;
+      ctx.shadowBlur = 6;
+      // Jagged crack with 2-3 segments
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      let px = cx, py = cy;
+      const segs = 2 + Math.floor(Math.random() * 2);
+      for (let seg = 0; seg < segs; seg++) {
+        const frac = (seg + 1) / segs;
+        const jitter = noise2D(i + seg * 3, this.time) * 12 * sizeMul;
+        px = cx + Math.cos(angle) * len * frac + Math.cos(angle + Math.PI / 2) * jitter;
+        py = cy + Math.sin(angle) * len * frac + Math.sin(angle + Math.PI / 2) * jitter;
+        ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+
     // Fine crystalline stipple
     this.drawStipple(cx, cy, h, s, 90, stpSize, Math.floor(40 * sizeMul));
   }
@@ -273,6 +304,7 @@ export class GenerativeEngine {
     const ringCount = p?.clapRingCount ?? 1;
     const glowRadius = ((p?.clapGlowRadius ?? 10) + f.volume * 40) * sizeMul;
     const baseSplatCount = p?.clapSplatCount ?? 3;
+    const ctx = this.accCtx;
 
     // Shockwave rings
     for (let i = 0; i < ringCount; i++) {
@@ -280,7 +312,6 @@ export class GenerativeEngine {
     }
 
     // Central glow
-    const ctx = this.accCtx;
     ctx.save();
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowRadius);
     grad.addColorStop(0, `hsla(${h}, ${s}%, 95%, 0.5)`);
@@ -290,6 +321,26 @@ export class GenerativeEngine {
     ctx.beginPath();
     ctx.arc(cx, cy, glowRadius, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
+
+    // Radial streak lines — pressure wave rays
+    ctx.save();
+    const streakCount = 6 + Math.floor(f.volume * 10);
+    for (let i = 0; i < streakCount; i++) {
+      const [rh, rs, rl] = this.pick(CLAP_PALETTE);
+      const angle = (i / streakCount) * Math.PI * 2 + noise2D(i, this.time) * 0.4;
+      const innerR = glowRadius * (0.3 + noise2D(i * 0.5, this.time) * 0.3);
+      const outerR = glowRadius * (0.7 + noise2D(i * 1.1, this.time) * 0.5);
+      ctx.globalAlpha = 0.15 + f.volume * 0.25;
+      ctx.strokeStyle = `hsl(${rh}, ${rs}%, ${Math.min(100, rl + 15)}%)`;
+      ctx.lineWidth = (0.5 + noise2D(i, this.time * 0.3) * 1.5) * sizeMul;
+      ctx.shadowColor = ctx.strokeStyle;
+      ctx.shadowBlur = 4;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(angle) * innerR, cy + Math.sin(angle) * innerR);
+      ctx.lineTo(cx + Math.cos(angle) * outerR, cy + Math.sin(angle) * outerR);
+      ctx.stroke();
+    }
     ctx.restore();
 
     // Paint splatter with noise variation
@@ -381,6 +432,30 @@ export class GenerativeEngine {
     }
     ctx.restore();
 
+    // Floating confetti — small colored rectangles tumbling outward
+    ctx.save();
+    const confettiCount = 2 + Math.floor(f.volume * 6);
+    for (let i = 0; i < confettiCount; i++) {
+      const [ch, cs, cl] = this.pick(LAUGH_PALETTE);
+      const ni = noise2D(i * 1.3 + this.time, cx * 0.03);
+      const angle = ni * Math.PI * 2;
+      const dist = (15 + ni * 35 + f.volume * 25) * sizeMul;
+      const fx = cx + Math.cos(angle) * dist;
+      const fy = cy + Math.sin(angle) * dist - f.volume * 15;
+      const rot = noise2D(i * 2, this.time * 0.4) * Math.PI;
+      const w = (2 + ni * 4) * sizeMul;
+      const h2 = w * (0.4 + Math.random() * 0.4);
+      ctx.globalAlpha = 0.5 + ni * 0.4;
+      ctx.fillStyle = `hsl(${ch}, ${cs}%, ${cl}%)`;
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.shadowBlur = 3;
+      ctx.translate(fx, fy);
+      ctx.rotate(rot);
+      ctx.fillRect(-w / 2, -h2 / 2, w, h2);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+    ctx.restore();
+
     // Tiny dots with noise-driven scatter
     ctx.save();
     for (let i = 0; i < dotCount; i++) {
@@ -395,6 +470,28 @@ export class GenerativeEngine {
       ctx.beginPath();
       ctx.arc(dx, dy, (0.5 + ni * 2) * sizeMul, 0, Math.PI * 2);
       ctx.fill();
+    }
+    ctx.restore();
+
+    // Bouncing arc trails — curved lines that give a sense of bounce
+    ctx.save();
+    const arcCount = 1 + Math.floor(f.volume * 2);
+    for (let i = 0; i < arcCount; i++) {
+      const [ah, as, al] = this.pick(LAUGH_PALETTE);
+      const ni = noise2D(i * 0.9 + this.time, cx * 0.01);
+      const startX = cx + (ni - 0.5) * 60 * sizeMul;
+      const startY = cy + (noise2D(i * 2, cy * 0.01) - 0.5) * 40 * sizeMul;
+      const arcW = (30 + ni * 40) * sizeMul;
+      const arcH = (10 + f.volume * 20) * sizeMul;
+      ctx.globalAlpha = 0.25 + f.volume * 0.3;
+      ctx.strokeStyle = `hsl(${ah}, ${as}%, ${Math.min(100, al + 10)}%)`;
+      ctx.lineWidth = (0.5 + ni * 1) * sizeMul;
+      ctx.shadowColor = ctx.strokeStyle;
+      ctx.shadowBlur = 4;
+      ctx.beginPath();
+      ctx.moveTo(startX - arcW / 2, startY);
+      ctx.quadraticCurveTo(startX, startY - arcH, startX + arcW / 2, startY);
+      ctx.stroke();
     }
     ctx.restore();
 

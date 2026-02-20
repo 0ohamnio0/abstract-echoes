@@ -1,8 +1,35 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { AudioAnalyzer, SoundType } from '@/lib/audioAnalyzer';
 import { GenerativeEngine } from '@/lib/generativeEngine';
-import { createDefaultParams, extractValues, TuningParams } from '@/lib/tuningParams';
+import { createDefaultParams, extractValues, TuningParams, ParamDef } from '@/lib/tuningParams';
 import TuningPanel from './TuningPanel';
+
+const STORAGE_KEY = 'soundcanvas-tuning-params';
+
+function loadParams(): TuningParams {
+  const defaults = createDefaultParams();
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) return defaults;
+    const values = JSON.parse(stored) as Record<string, number>;
+    for (const key of Object.keys(defaults)) {
+      if (key in values) {
+        (defaults as any)[key].value = values[key];
+      }
+    }
+    return defaults;
+  } catch {
+    return defaults;
+  }
+}
+
+function saveParams(params: TuningParams) {
+  const obj: Record<string, number> = {};
+  for (const [key, def] of Object.entries(params)) {
+    obj[key] = (def as ParamDef).value;
+  }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+}
 
 const CANVAS_WIDTH = 1900;
 const CANVAS_HEIGHT = 1200;
@@ -22,7 +49,7 @@ export default function SoundCanvas() {
   const [threshold, setThreshold] = useState(0.06);
   const [showSettings, setShowSettings] = useState(false);
   const [showTuning, setShowTuning] = useState(false);
-  const [tuningParams, setTuningParams] = useState<TuningParams>(createDefaultParams);
+  const [tuningParams, setTuningParams] = useState<TuningParams>(loadParams);
   const debugFrameRef = useRef(0);
 
   const handleTuningChange = useCallback((key: string, value: number) => {
@@ -39,6 +66,7 @@ export default function SoundCanvas() {
       if (key === 'yamnetMaxResults' && analyzerRef.current) {
         (analyzerRef.current as any).yamnet.maxResults = value;
       }
+      saveParams(next);
       return next;
     });
   }, []);
