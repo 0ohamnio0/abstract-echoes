@@ -7,12 +7,12 @@ const NEON_COLORS = [
   [270, 80, 60], [350, 100, 70], [160, 100, 45], [40, 100, 60],
 ];
 
-// Snap: icy crystalline
-const SNAP_PALETTE = [[195, 100, 75], [0, 0, 95], [280, 80, 80], [45, 100, 80]];
-// Clap: warm explosive
-const CLAP_PALETTE = [[25, 100, 60], [0, 100, 60], [55, 100, 65], [40, 100, 55]];
-// Laugh: bubbly playful
-const LAUGH_PALETTE = [[300, 80, 70], [330, 100, 70], [55, 100, 65], [160, 100, 60], [270, 90, 70]];
+// Snap: cool neon crystalline (matching main palette)
+const SNAP_PALETTE = [[180, 100, 50], [220, 100, 60], [270, 80, 60], [160, 100, 45]];
+// Clap: warm neon (matching main palette)
+const CLAP_PALETTE = [[330, 100, 65], [25, 100, 55], [55, 100, 55], [0, 100, 55]];
+// Laugh: vibrant neon playful (matching main palette)
+const LAUGH_PALETTE = [[300, 100, 60], [120, 100, 55], [350, 100, 70], [270, 80, 60], [55, 100, 55]];
 
 interface TrailPoint {
   x: number; y: number;
@@ -54,6 +54,7 @@ export class GenerativeEngine {
   private activeFlows: FlowLine[] = [];
   private framesSinceSpeaking = 0;
   private lastSoundType: SoundType = 'silence';
+  private lastClapTime = 0;
 
   // Tuning params (set externally)
   params: ParamValues | null = null;
@@ -99,7 +100,7 @@ export class GenerativeEngine {
 
       switch (features.soundType) {
         case 'snap': this.onSnap(features); this.endActiveFlows(); break;
-        case 'clap': this.onClap(features); this.endActiveFlows(); break;
+        case 'clap': this.onClapThrottled(features); this.endActiveFlows(); break;
         case 'laugh': this.onLaugh(features); break;
         case 'voice': this.onVoice(features); break;
       }
@@ -188,6 +189,14 @@ export class GenerativeEngine {
   // ═══════════════════════════════════════════
   //  CLAP → warm shockwave + scattered splatter + concentric rings
   // ═══════════════════════════════════════════
+  private onClapThrottled(f: AudioFeatures) {
+    // Only allow one clap event per 300ms to prevent flooding
+    const now = performance.now();
+    if (now - this.lastClapTime < 300) return;
+    this.lastClapTime = now;
+    this.onClap(f);
+  }
+
   private onClap(f: AudioFeatures) {
     // Random position anywhere on canvas (with margin)
     const margin = 100;
