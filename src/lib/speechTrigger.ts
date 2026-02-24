@@ -23,8 +23,9 @@ export class SpeechTrigger {
   private cooldowns = new Map<TriggerWord, number>();
   private cooldownMs = 2000;
   private restartTimer: number = 0;
-  private consecutiveErrors = 0;
-  private maxConsecutiveErrors = 5;
+  private consecutiveRestarts = 0;
+  private lastStartTime = 0;
+  private hadResult = false;
 
   constructor(onTrigger: (event: TriggerEvent) => void) {
     this.onTrigger = onTrigger;
@@ -38,7 +39,7 @@ export class SpeechTrigger {
     }
 
     this.running = true;
-    this.consecutiveErrors = 0;
+    this.consecutiveRestarts = 0;
     this.createRecognition(SpeechRecognition);
     return true;
   }
@@ -56,9 +57,12 @@ export class SpeechTrigger {
     this.recognition.continuous = true;
     this.recognition.interimResults = true;
     this.recognition.maxAlternatives = 1;
+    this.hadResult = false;
+    this.lastStartTime = Date.now();
 
     this.recognition.onresult = (event: any) => {
-      this.consecutiveErrors = 0; // successful result resets error count
+      this.hadResult = true;
+      this.consecutiveRestarts = 0;
       const now = Date.now();
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript.trim();
@@ -80,7 +84,6 @@ export class SpeechTrigger {
 
     this.recognition.onerror = (event: any) => {
       if (!this.running) return;
-      // 'aborted' errors often cascade — don't log or restart aggressively
       if (event.error === 'aborted') return;
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         console.warn('[SpeechTrigger] Permission denied, stopping');
@@ -88,25 +91,40 @@ export class SpeechTrigger {
         return;
       }
       console.warn('[SpeechTrigger] error:', event.error);
-      this.consecutiveErrors++;
-      if (this.consecutiveErrors >= this.maxConsecutiveErrors) {
-        console.warn('[SpeechTrigger] Too many errors, pausing for 10s');
-        this.scheduleRestart(10000);
-      }
     };
 
     this.recognition.onend = () => {
       if (!this.running) return;
-      // Restart with backoff based on error count
-      const delay = this.consecutiveErrors > 0 ? 2000 : 500;
+
+      const sessionDuration = Date.now() - this.lastStartTime;
+
+      // If session lasted less than 2 seconds and had no results, it's a bad restart
+      if (sessionDuration < 2000 && !this.hadResult) {
+        this.consecutiveRestarts++;
+      } else {
+        this.consecutiveRestarts = 0;
+      }
+
+      // Exponential backoff: give up after too many rapid restarts
+      if (this.consecutiveRestarts >= 5) {
+        console.warn('[SpeechTrigger] Too many rapid restarts, pausing for 30s');
+        this.scheduleRestart(30000);
+        this.consecutiveRestarts = 0;
+        return;
+      }
+
+      // Normal restart with increasing delay
+      const delay = Math.min(1000 + this.consecutiveRestarts * 1000, 5000);
       this.scheduleRestart(delay);
     };
 
     try {
       this.recognition.start();
-      console.log('[SpeechTrigger] Started Korean speech recognition');
+      if (this.consecutiveRestarts === 0) {
+        console.log('[SpeechTrigger] Started Korean speech recognition');
+      }
     } catch {
-      this.scheduleRestart(2000);
+      this.scheduleRestart(3000);
     }
   }
 
