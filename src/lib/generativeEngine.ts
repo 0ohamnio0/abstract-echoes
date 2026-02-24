@@ -881,50 +881,86 @@ export class GenerativeEngine {
     }
   }
 
-  // 🌈 행복 — rainbow arc particles across the full screen
+  // 🌈 행복 — bioluminescent bloom: nebula clusters + spirals + stipple clouds
   private eventHappy() {
     const ctx = this.accCtx;
     const W = this.canvas.width, H = this.canvas.height;
-    const cx = W / 2, cy = H * 0.7;
 
-    // Rainbow arc
-    const rainbowColors = [0, 30, 55, 120, 200, 270, 310]; // ROYGBIV hues
+    // Use the existing neon palette with shifting hues for organic warmth
+    const bloomHues = [120, 180, 270, 330, 55, 300]; // greens, cyans, purples, pinks, golds
+
+    // Scatter 5-7 large nebula blooms across the canvas
+    const clusterCount = 5 + Math.floor(Math.random() * 3);
+    for (let c = 0; c < clusterCount; c++) {
+      const cx = W * (0.1 + Math.random() * 0.8);
+      const cy = H * (0.1 + Math.random() * 0.8);
+      const hue = bloomHues[c % bloomHues.length] + Math.random() * 30;
+      const size = 60 + Math.random() * 100;
+
+      // Layered nebula glow
+      this.drawNebula(cx, cy, hue, 100, 55, size);
+
+      // Dense stipple cloud around each nebula
+      this.drawStipple(cx, cy, hue, 100, 65, size * 0.8, 30 + Math.floor(Math.random() * 30));
+
+      // Spiral emanating from each cluster
+      if (Math.random() < 0.6) {
+        this.drawSpiral(
+          cx + (Math.random() - 0.5) * 40,
+          cy + (Math.random() - 0.5) * 40,
+          (hue + 30) % 360, 100, 60,
+          30 + Math.random() * 50
+        );
+      }
+    }
+
+    // Organic connecting tendrils between clusters using flowing curves
     ctx.save();
-    for (let band = 0; band < rainbowColors.length; band++) {
-      const radius = W * 0.35 + band * 18;
-      ctx.globalAlpha = 0.2 + Math.random() * 0.15;
-      ctx.strokeStyle = `hsl(${rainbowColors[band]}, 100%, 60%)`;
-      ctx.lineWidth = 12 + Math.random() * 6;
+    ctx.lineCap = 'round';
+    const tendrilCount = 4 + Math.floor(Math.random() * 4);
+    for (let t = 0; t < tendrilCount; t++) {
+      const x1 = W * (0.1 + Math.random() * 0.8);
+      const y1 = H * (0.1 + Math.random() * 0.8);
+      const x2 = W * (0.1 + Math.random() * 0.8);
+      const y2 = H * (0.1 + Math.random() * 0.8);
+      const cpx = (x1 + x2) / 2 + (Math.random() - 0.5) * 300;
+      const cpy = (y1 + y2) / 2 + (Math.random() - 0.5) * 300;
+      const hue = bloomHues[Math.floor(Math.random() * bloomHues.length)];
+
+      ctx.globalAlpha = 0.15 + Math.random() * 0.2;
+      ctx.strokeStyle = `hsl(${hue}, 100%, 60%)`;
+      ctx.lineWidth = 0.5 + Math.random() * 2;
       ctx.shadowColor = ctx.strokeStyle;
-      ctx.shadowBlur = 20;
+      ctx.shadowBlur = 15;
       ctx.beginPath();
-      ctx.arc(cx, cy, radius, Math.PI, 0);
+      ctx.moveTo(x1, y1);
+      ctx.quadraticCurveTo(cpx, cpy, x2, y2);
       ctx.stroke();
     }
     ctx.restore();
 
-    // Scattered colorful particles across full screen
+    // Soft full-screen multi-hue glow wash
     ctx.save();
-    for (let i = 0; i < 60; i++) {
-      const px = Math.random() * W;
-      const py = Math.random() * H;
-      const hue = Math.random() * 360;
-      const size = 1 + Math.random() * 5;
-      ctx.globalAlpha = 0.4 + Math.random() * 0.5;
-      ctx.fillStyle = `hsl(${hue}, 100%, 65%)`;
-      ctx.shadowColor = ctx.fillStyle;
-      ctx.shadowBlur = 8;
-      ctx.beginPath();
-      ctx.arc(px, py, size, 0, Math.PI * 2);
-      ctx.fill();
+    for (let g = 0; g < 3; g++) {
+      const gx = W * (0.2 + Math.random() * 0.6);
+      const gy = H * (0.2 + Math.random() * 0.6);
+      const gr = W * (0.2 + Math.random() * 0.15);
+      const hue = bloomHues[Math.floor(Math.random() * bloomHues.length)];
+      const grad = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
+      grad.addColorStop(0, `hsla(${hue}, 100%, 60%, 0.12)`);
+      grad.addColorStop(0.5, `hsla(${hue}, 100%, 50%, 0.04)`);
+      grad.addColorStop(1, `hsla(${hue}, 100%, 40%, 0)`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
     }
     ctx.restore();
 
-    // Confetti burst from center
-    for (let i = 0; i < 20; i++) {
-      const a = (i / 20) * Math.PI * 2;
-      const sp = 2 + Math.random() * 5;
-      this.bursts.push({ x: cx, y: cy - W * 0.3, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 2, hue: Math.random() * 360, sat: 100, light: 65, size: 3 + Math.random() * 6, life: 1.5, type: 'shard' });
+    // Animated expanding rings from cluster centers
+    for (let i = 0; i < 3; i++) {
+      const rx = W * (0.2 + Math.random() * 0.6);
+      const ry = H * (0.2 + Math.random() * 0.6);
+      const hue = bloomHues[Math.floor(Math.random() * bloomHues.length)];
+      this.bursts.push({ x: rx, y: ry, hue, sat: 100, light: 60, size: 3, life: 1.2, type: 'ring', vx: 0, vy: 0 });
     }
   }
 
