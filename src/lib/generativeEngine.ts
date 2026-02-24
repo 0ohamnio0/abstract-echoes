@@ -837,12 +837,24 @@ export class GenerativeEngine {
     ctx.fillStyle = `hsl(${h}, ${s}%, ${l}%)`;
     ctx.shadowColor = `hsl(${h}, ${s}%, ${l}%)`;
     ctx.shadowBlur = size * 0.8;
+
+    // Classic heart using two arc bumps + triangle bottom
+    const s2 = size * 0.5;
     ctx.beginPath();
-    // Heart shape using bezier curves
-    const topY = y - size * 0.4;
-    ctx.moveTo(x, y + size * 0.3);
-    ctx.bezierCurveTo(x - size * 0.6, topY - size * 0.3, x - size * 0.9, topY + size * 0.3, x, y - size * 0.1);
-    ctx.bezierCurveTo(x + size * 0.9, topY + size * 0.3, x + size * 0.6, topY - size * 0.3, x, y + size * 0.3);
+    ctx.moveTo(x, y + size * 0.6); // bottom tip
+    // Left curve
+    ctx.bezierCurveTo(
+      x - size * 1.0, y + size * 0.1,
+      x - size * 0.7, y - size * 0.7,
+      x, y - size * 0.2
+    );
+    // Right curve
+    ctx.bezierCurveTo(
+      x + size * 0.7, y - size * 0.7,
+      x + size * 1.0, y + size * 0.1,
+      x, y + size * 0.6
+    );
+    ctx.closePath();
     ctx.fill();
     ctx.restore();
   }
