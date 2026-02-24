@@ -1,5 +1,6 @@
 import { AudioFeatures, SoundType } from './audioAnalyzer';
 import { ParamValues } from './tuningParams';
+import type { TriggerWord } from './speechTrigger';
 
 // Simple 2D Perlin-like noise (value noise with smoothstep)
 const _noiseP: number[] = [];
@@ -759,6 +760,219 @@ export class GenerativeEngine {
     o.fillStyle = '#000'; o.fillRect(0, 0, w, h);
     o.drawImage(src, sx, sy, sw, sh, 0, 0, w, h);
     return out.toDataURL('image/png');
+  }
+
+  // ═══════════════════════════════════════════
+  //  SPECIAL TRIGGER WORD EVENTS (full-screen)
+  // ═══════════════════════════════════════════
+  triggerSpecialEvent(word: TriggerWord) {
+    switch (word) {
+      case 'love': this.eventLove(); break;
+      case 'hello': this.eventHello(); break;
+      case 'happy': this.eventHappy(); break;
+      case 'wow': this.eventWow(); break;
+    }
+  }
+
+  // ❤️ 사랑해 — hearts bursting from center + pink/red glow
+  private eventLove() {
+    const ctx = this.accCtx;
+    const W = this.canvas.width, H = this.canvas.height;
+    const cx = W / 2, cy = H / 2;
+
+    // Large pink/red radial glow
+    ctx.save();
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, W * 0.5);
+    grad.addColorStop(0, 'hsla(340, 100%, 70%, 0.3)');
+    grad.addColorStop(0.4, 'hsla(330, 100%, 60%, 0.1)');
+    grad.addColorStop(1, 'hsla(330, 100%, 50%, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+
+    // Scatter hearts across the whole screen
+    const heartCount = 30 + Math.floor(Math.random() * 20);
+    for (let i = 0; i < heartCount; i++) {
+      const hx = Math.random() * W;
+      const hy = Math.random() * H;
+      const size = 8 + Math.random() * 35;
+      const hue = 330 + Math.random() * 30; // pink-red range
+      this.drawHeart(hx, hy, size, hue, 90, 65 + Math.random() * 20);
+    }
+
+    // Expanding ring bursts from center
+    for (let i = 0; i < 3; i++) {
+      this.bursts.push({ x: cx, y: cy, hue: 340 + i * 10, sat: 100, light: 65, size: 5 + i * 3, life: 1.2 + i * 0.3, type: 'ring', vx: 0, vy: 0 });
+    }
+
+    // Floating heart particles outward
+    for (let i = 0; i < 15; i++) {
+      const a = (i / 15) * Math.PI * 2 + Math.random() * 0.3;
+      const sp = 2 + Math.random() * 4;
+      this.bursts.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, hue: 330 + Math.random() * 30, sat: 100, light: 65, size: 5 + Math.random() * 10, life: 1.5, type: 'shard' });
+    }
+  }
+
+  private drawHeart(x: number, y: number, size: number, h: number, s: number, l: number) {
+    const ctx = this.accCtx;
+    ctx.save();
+    ctx.globalAlpha = 0.4 + Math.random() * 0.5;
+    ctx.fillStyle = `hsl(${h}, ${s}%, ${l}%)`;
+    ctx.shadowColor = `hsl(${h}, ${s}%, ${l}%)`;
+    ctx.shadowBlur = size * 0.8;
+    ctx.beginPath();
+    // Heart shape using bezier curves
+    const topY = y - size * 0.4;
+    ctx.moveTo(x, y + size * 0.3);
+    ctx.bezierCurveTo(x - size * 0.6, topY - size * 0.3, x - size * 0.9, topY + size * 0.3, x, y - size * 0.1);
+    ctx.bezierCurveTo(x + size * 0.9, topY + size * 0.3, x + size * 0.6, topY - size * 0.3, x, y + size * 0.3);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // 👋 안녕 — sparkling wave sweeping across the screen
+  private eventHello() {
+    const ctx = this.accCtx;
+    const W = this.canvas.width, H = this.canvas.height;
+
+    // Horizontal wave of sparkles
+    const waveY = H * (0.3 + Math.random() * 0.4);
+    ctx.save();
+    for (let i = 0; i < 80; i++) {
+      const wx = Math.random() * W;
+      const wy = waveY + Math.sin(wx / W * Math.PI * 3) * 80 + (Math.random() - 0.5) * 120;
+      const size = 1 + Math.random() * 4;
+      const hue = 40 + Math.random() * 40; // golden sparkles
+      ctx.globalAlpha = 0.5 + Math.random() * 0.5;
+      ctx.fillStyle = `hsl(${hue}, 100%, ${70 + Math.random() * 25}%)`;
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.arc(wx, wy, size, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Star sparkle cross
+      if (Math.random() < 0.3) {
+        const len = size * 3;
+        ctx.strokeStyle = ctx.fillStyle;
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(wx - len, wy); ctx.lineTo(wx + len, wy);
+        ctx.moveTo(wx, wy - len); ctx.lineTo(wx, wy + len);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+
+    // Sweeping glow band
+    ctx.save();
+    const bandGrad = ctx.createLinearGradient(0, waveY - 100, 0, waveY + 100);
+    bandGrad.addColorStop(0, 'hsla(50, 100%, 70%, 0)');
+    bandGrad.addColorStop(0.5, 'hsla(50, 100%, 80%, 0.15)');
+    bandGrad.addColorStop(1, 'hsla(50, 100%, 70%, 0)');
+    ctx.fillStyle = bandGrad;
+    ctx.fillRect(0, waveY - 100, W, 200);
+    ctx.restore();
+
+    // Expanding rings at random points along the wave
+    for (let i = 0; i < 4; i++) {
+      const rx = W * (0.1 + i * 0.25 + Math.random() * 0.1);
+      this.bursts.push({ x: rx, y: waveY + Math.sin(rx / W * Math.PI * 3) * 50, hue: 45, sat: 100, light: 75, size: 3, life: 1, type: 'ring', vx: 0, vy: 0 });
+    }
+  }
+
+  // 🌈 행복 — rainbow arc particles across the full screen
+  private eventHappy() {
+    const ctx = this.accCtx;
+    const W = this.canvas.width, H = this.canvas.height;
+    const cx = W / 2, cy = H * 0.7;
+
+    // Rainbow arc
+    const rainbowColors = [0, 30, 55, 120, 200, 270, 310]; // ROYGBIV hues
+    ctx.save();
+    for (let band = 0; band < rainbowColors.length; band++) {
+      const radius = W * 0.35 + band * 18;
+      ctx.globalAlpha = 0.2 + Math.random() * 0.15;
+      ctx.strokeStyle = `hsl(${rainbowColors[band]}, 100%, 60%)`;
+      ctx.lineWidth = 12 + Math.random() * 6;
+      ctx.shadowColor = ctx.strokeStyle;
+      ctx.shadowBlur = 20;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, Math.PI, 0);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Scattered colorful particles across full screen
+    ctx.save();
+    for (let i = 0; i < 60; i++) {
+      const px = Math.random() * W;
+      const py = Math.random() * H;
+      const hue = Math.random() * 360;
+      const size = 1 + Math.random() * 5;
+      ctx.globalAlpha = 0.4 + Math.random() * 0.5;
+      ctx.fillStyle = `hsl(${hue}, 100%, 65%)`;
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(px, py, size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Confetti burst from center
+    for (let i = 0; i < 20; i++) {
+      const a = (i / 20) * Math.PI * 2;
+      const sp = 2 + Math.random() * 5;
+      this.bursts.push({ x: cx, y: cy - W * 0.3, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 2, hue: Math.random() * 360, sat: 100, light: 65, size: 3 + Math.random() * 6, life: 1.5, type: 'shard' });
+    }
+  }
+
+  // 🎆 와/대박 — fireworks explosion
+  private eventWow() {
+    const ctx = this.accCtx;
+    const W = this.canvas.width, H = this.canvas.height;
+
+    // Multiple firework bursts at random positions
+    const burstCount = 3 + Math.floor(Math.random() * 3);
+    for (let b = 0; b < burstCount; b++) {
+      const bx = W * (0.15 + Math.random() * 0.7);
+      const by = H * (0.15 + Math.random() * 0.5);
+      const hue = Math.random() * 360;
+
+      // Central flash
+      ctx.save();
+      const grad = ctx.createRadialGradient(bx, by, 0, bx, by, 80);
+      grad.addColorStop(0, `hsla(${hue}, 100%, 95%, 0.6)`);
+      grad.addColorStop(0.3, `hsla(${hue}, 100%, 70%, 0.2)`);
+      grad.addColorStop(1, `hsla(${hue}, 100%, 50%, 0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(bx, by, 80, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Expanding rings
+      this.bursts.push({ x: bx, y: by, hue, sat: 100, light: 70, size: 5, life: 1.3, type: 'ring', vx: 0, vy: 0 });
+      this.bursts.push({ x: bx, y: by, hue: (hue + 40) % 360, sat: 100, light: 65, size: 3, life: 1.5, type: 'ring', vx: 0, vy: 0 });
+
+      // Sparks radiating outward
+      const sparkCount = 20 + Math.floor(Math.random() * 15);
+      for (let i = 0; i < sparkCount; i++) {
+        const a = (i / sparkCount) * Math.PI * 2 + Math.random() * 0.3;
+        const sp = 3 + Math.random() * 6;
+        this.bursts.push({
+          x: bx, y: by,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp + Math.random() * 1.5,
+          hue: (hue + Math.random() * 60) % 360, sat: 100, light: 65 + Math.random() * 20,
+          size: 2 + Math.random() * 5, life: 1 + Math.random() * 0.8,
+          type: 'shard'
+        });
+      }
+
+      // Stipple cloud at each burst center
+      this.drawStipple(bx, by, hue, 100, 75, 50, 40);
+    }
   }
 
   clear() {
