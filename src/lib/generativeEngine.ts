@@ -800,16 +800,28 @@ export class GenerativeEngine {
       this.drawHeart(hx, hy, size, hue, 90, 65 + Math.random() * 20);
     }
 
-    // Expanding ring bursts from center
-    for (let i = 0; i < 3; i++) {
-      this.bursts.push({ x: cx, y: cy, hue: 340 + i * 10, sat: 100, light: 65, size: 5 + i * 3, life: 1.2 + i * 0.3, type: 'ring', vx: 0, vy: 0 });
+    // Nebula blooms around heart clusters — soft bioluminescent glow
+    const nebulaCount = 4 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < nebulaCount; i++) {
+      const nx = W * (0.1 + Math.random() * 0.8);
+      const ny = H * (0.1 + Math.random() * 0.8);
+      const hue = 330 + Math.random() * 30;
+      this.drawNebula(nx, ny, hue, 90, 60, 50 + Math.random() * 80);
     }
 
-    // Floating heart particles outward
-    for (let i = 0; i < 15; i++) {
-      const a = (i / 15) * Math.PI * 2 + Math.random() * 0.3;
-      const sp = 2 + Math.random() * 4;
-      this.bursts.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, hue: 330 + Math.random() * 30, sat: 100, light: 65, size: 5 + Math.random() * 10, life: 1.5, type: 'shard' });
+    // Spirals drifting outward from scattered points
+    for (let i = 0; i < 5; i++) {
+      const sx = W * (0.15 + Math.random() * 0.7);
+      const sy = H * (0.15 + Math.random() * 0.7);
+      const hue = 335 + Math.random() * 25;
+      this.drawSpiral(sx, sy, hue, 100, 65, 25 + Math.random() * 40);
+    }
+
+    // Stipple halos around a few hearts for organic texture
+    for (let i = 0; i < 3; i++) {
+      const sx = W * (0.2 + Math.random() * 0.6);
+      const sy = H * (0.2 + Math.random() * 0.6);
+      this.drawStipple(sx, sy, 340 + Math.random() * 20, 100, 70, 40 + Math.random() * 30, 25);
     }
   }
 
