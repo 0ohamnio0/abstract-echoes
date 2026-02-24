@@ -662,7 +662,7 @@ export class GenerativeEngine {
 
       if (b.life <= 0) continue;
       ctx.save();
-      ctx.globalAlpha = Math.min(1, b.life) * (b.type === 'ring' ? 0.8 : 1.0);
+      ctx.globalAlpha = Math.min(1, b.life) * (b.type === 'ring' ? 0.6 : 1.0);
       const color = `hsl(${b.hue}, ${b.sat}%, ${b.light}%)`;
 
       if (b.type === 'starburst') {
