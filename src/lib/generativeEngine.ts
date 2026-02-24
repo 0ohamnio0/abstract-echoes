@@ -790,15 +790,6 @@ export class GenerativeEngine {
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
 
-    // Scatter hearts across the whole screen
-    const heartCount = 30 + Math.floor(Math.random() * 20);
-    for (let i = 0; i < heartCount; i++) {
-      const hx = Math.random() * W;
-      const hy = Math.random() * H;
-      const size = 8 + Math.random() * 35;
-      const hue = 330 + Math.random() * 30; // pink-red range
-      this.drawHeart(hx, hy, size, hue, 90, 65 + Math.random() * 20);
-    }
 
     // Large expanding rings from center
     for (let i = 0; i < 4; i++) {
