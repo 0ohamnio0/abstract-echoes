@@ -2,6 +2,7 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import { AudioAnalyzer, SoundType } from '@/lib/audioAnalyzer';
 import { GenerativeEngine } from '@/lib/generativeEngine';
 import { createDefaultParams, extractValues, TuningParams, ParamDef } from '@/lib/tuningParams';
+import { SpeechTrigger, TriggerWord } from '@/lib/speechTrigger';
 import TuningPanel from './TuningPanel';
 
 const STORAGE_KEY = 'soundcanvas-tuning-params';
@@ -38,6 +39,7 @@ export default function SoundCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const analyzerRef = useRef<AudioAnalyzer | null>(null);
   const engineRef = useRef<GenerativeEngine | null>(null);
+  const speechRef = useRef<SpeechTrigger | null>(null);
   const animFrameRef = useRef<number>(0);
   const [isActive, setIsActive] = useState(false);
   const [debugVolume, setDebugVolume] = useState(0);
@@ -50,6 +52,8 @@ export default function SoundCanvas() {
   const [showSettings, setShowSettings] = useState(false);
   const [showTuning, setShowTuning] = useState(false);
   const [tuningParams, setTuningParams] = useState<TuningParams>(loadParams);
+  const [triggerDisplay, setTriggerDisplay] = useState<{ word: TriggerWord; text: string } | null>(null);
+  const triggerTimerRef = useRef<number>(0);
   const debugFrameRef = useRef(0);
 
   const handleTuningChange = useCallback((key: string, value: number) => {
@@ -99,6 +103,19 @@ export default function SoundCanvas() {
       const engine = new GenerativeEngine(canvasRef.current);
       engine.params = extractValues(tuningParams);
       engineRef.current = engine;
+
+      // Start speech recognition for trigger words
+      const speech = new SpeechTrigger((event) => {
+        engine.triggerSpecialEvent(event.word);
+        // Show trigger word on screen
+        clearTimeout(triggerTimerRef.current);
+        const emoji = event.word === 'love' ? '❤️' : event.word === 'hello' ? '👋' : event.word === 'happy' ? '🌈' : '🎆';
+        setTriggerDisplay({ word: event.word, text: `${emoji} "${event.transcript}"` });
+        triggerTimerRef.current = window.setTimeout(() => setTriggerDisplay(null), 2500);
+      });
+      speech.start();
+      speechRef.current = speech;
+
       setIsActive(true);
       animFrameRef.current = requestAnimationFrame(loop);
     } catch (e) {
@@ -111,6 +128,8 @@ export default function SoundCanvas() {
     cancelAnimationFrame(animFrameRef.current);
     analyzerRef.current?.stop();
     analyzerRef.current = null;
+    speechRef.current?.stop();
+    speechRef.current = null;
     setIsActive(false);
   }, []);
 
@@ -153,6 +172,8 @@ export default function SoundCanvas() {
     return () => {
       cancelAnimationFrame(animFrameRef.current);
       analyzerRef.current?.stop();
+      speechRef.current?.stop();
+      clearTimeout(triggerTimerRef.current);
     };
   }, []);
 
@@ -337,6 +358,15 @@ export default function SoundCanvas() {
         <div className="absolute top-6 right-6 flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
           <span className="text-xs text-muted-foreground tracking-wider uppercase">녹음 중</span>
+        </div>
+      )}
+
+      {/* Trigger word display */}
+      {triggerDisplay && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-30 animate-in fade-in zoom-in-95 duration-300">
+          <div className="text-3xl font-light tracking-widest text-foreground/90 text-center text-glow px-8 py-4 bg-card/30 backdrop-blur-sm rounded-xl border border-border/30">
+            {triggerDisplay.text}
+          </div>
         </div>
       )}
     </div>
