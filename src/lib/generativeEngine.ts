@@ -662,7 +662,7 @@ export class GenerativeEngine {
 
       if (b.life <= 0) continue;
       ctx.save();
-      ctx.globalAlpha = Math.min(1, b.life);
+      ctx.globalAlpha = Math.min(1, b.life) * (b.type === 'ring' ? 0.8 : 1.0);
       const color = `hsl(${b.hue}, ${b.sat}%, ${b.light}%)`;
 
       if (b.type === 'starburst') {
@@ -799,8 +799,8 @@ export class GenerativeEngine {
     // Phase 1 (immediate): Soft center glow + first ring
     ctx.save();
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, W * 0.5);
-    grad.addColorStop(0, 'hsla(340, 100%, 70%, 0.15)');
-    grad.addColorStop(0.4, 'hsla(330, 100%, 60%, 0.05)');
+    grad.addColorStop(0, 'hsla(340, 100%, 70%, 0.12)');
+    grad.addColorStop(0.4, 'hsla(330, 100%, 60%, 0.04)');
     grad.addColorStop(1, 'hsla(330, 100%, 50%, 0)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
@@ -838,7 +838,7 @@ export class GenerativeEngine {
       const gctx = this.accCtx;
       gctx.save();
       const g2 = gctx.createRadialGradient(cx, cy, 0, cx, cy, W * 0.4);
-      g2.addColorStop(0, 'hsla(335, 100%, 65%, 0.12)');
+      g2.addColorStop(0, 'hsla(335, 100%, 65%, 0.096)');
       g2.addColorStop(1, 'hsla(335, 100%, 55%, 0)');
       gctx.fillStyle = g2;
       gctx.fillRect(0, 0, W, H);
@@ -1003,8 +1003,8 @@ export class GenerativeEngine {
       const gr = W * (0.2 + Math.random() * 0.15);
       const hue = bloomHues[Math.floor(Math.random() * bloomHues.length)];
       const grad = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
-      grad.addColorStop(0, `hsla(${hue}, 100%, 60%, 0.12)`);
-      grad.addColorStop(0.5, `hsla(${hue}, 100%, 50%, 0.04)`);
+      grad.addColorStop(0, `hsla(${hue}, 100%, 60%, 0.096)`);
+      grad.addColorStop(0.5, `hsla(${hue}, 100%, 50%, 0.032)`);
       grad.addColorStop(1, `hsla(${hue}, 100%, 40%, 0)`);
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, H);
@@ -1035,8 +1035,8 @@ export class GenerativeEngine {
       // Central flash
       ctx.save();
       const grad = ctx.createRadialGradient(bx, by, 0, bx, by, 80);
-      grad.addColorStop(0, `hsla(${hue}, 100%, 95%, 0.6)`);
-      grad.addColorStop(0.3, `hsla(${hue}, 100%, 70%, 0.2)`);
+      grad.addColorStop(0, `hsla(${hue}, 100%, 95%, 0.48)`);
+      grad.addColorStop(0.3, `hsla(${hue}, 100%, 70%, 0.16)`);
       grad.addColorStop(1, `hsla(${hue}, 100%, 50%, 0)`);
       ctx.fillStyle = grad;
       ctx.beginPath();
