@@ -800,6 +800,11 @@ export class GenerativeEngine {
       this.drawHeart(hx, hy, size, hue, 90, 65 + Math.random() * 20);
     }
 
+    // Large expanding rings from center
+    for (let i = 0; i < 4; i++) {
+      this.bursts.push({ x: cx, y: cy, hue: 335 + i * 8, sat: 100, light: 65, size: 5 + i * 4, life: 1.3 + i * 0.3, type: 'ring', vx: 0, vy: 0 });
+    }
+
     // Nebula blooms around heart clusters — soft bioluminescent glow
     const nebulaCount = 4 + Math.floor(Math.random() * 3);
     for (let i = 0; i < nebulaCount; i++) {
