@@ -73,6 +73,9 @@ export class GenerativeEngine {
   private lastSnapTime = 0;
   private lastLaughTime = 0;
 
+  // Scheduled delayed effects queue
+  private scheduledEffects: { time: number; fn: () => void }[] = [];
+
   // Tuning params (set externally)
   params: ParamValues | null = null;
 
@@ -131,8 +134,21 @@ export class GenerativeEngine {
       // No cursor movement when not speaking
     }
 
+    // Process scheduled delayed effects
+    this.processScheduledEffects();
+
     this.updateBursts();
     this.render();
+  }
+
+  private scheduleEffect(delaySec: number, fn: () => void) {
+    this.scheduledEffects.push({ time: this.time + delaySec, fn });
+  }
+
+  private processScheduledEffects() {
+    const ready = this.scheduledEffects.filter(e => this.time >= e.time);
+    for (const e of ready) e.fn();
+    this.scheduledEffects = this.scheduledEffects.filter(e => this.time < e.time);
   }
 
   private pick(palette: number[][]): [number, number, number] {
@@ -780,73 +796,93 @@ export class GenerativeEngine {
     const W = this.canvas.width, H = this.canvas.height;
     const cx = W / 2, cy = H / 2;
 
-    // Large pink/red radial glow
+    // Phase 1 (immediate): Soft center glow + first ring
     ctx.save();
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, W * 0.5);
-    grad.addColorStop(0, 'hsla(340, 100%, 70%, 0.3)');
-    grad.addColorStop(0.4, 'hsla(330, 100%, 60%, 0.1)');
+    grad.addColorStop(0, 'hsla(340, 100%, 70%, 0.15)');
+    grad.addColorStop(0.4, 'hsla(330, 100%, 60%, 0.05)');
     grad.addColorStop(1, 'hsla(330, 100%, 50%, 0)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
+    this.bursts.push({ x: cx, y: cy, hue: 335, sat: 100, light: 65, size: 5, life: 1.5, type: 'ring', vx: 0, vy: 0 });
 
+    // Phase 2 (0.3s): Second ring + first nebula fade-in
+    this.scheduleEffect(0.3, () => {
+      this.bursts.push({ x: cx, y: cy, hue: 340, sat: 100, light: 68, size: 8, life: 1.8, type: 'ring', vx: 0, vy: 0 });
+      this.drawFadedNebula(W * (0.2 + Math.random() * 0.3), H * (0.2 + Math.random() * 0.6), 330 + Math.random() * 20, 0.4);
+    });
 
-    // Large expanding rings from center
-    for (let i = 0; i < 4; i++) {
-      this.bursts.push({ x: cx, y: cy, hue: 335 + i * 8, sat: 100, light: 65, size: 5 + i * 4, life: 1.3 + i * 0.3, type: 'ring', vx: 0, vy: 0 });
-    }
-
-    // Nebula blooms around heart clusters — soft bioluminescent glow
-    const nebulaCount = 4 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < nebulaCount; i++) {
-      const nx = W * (0.1 + Math.random() * 0.8);
-      const ny = H * (0.1 + Math.random() * 0.8);
-      const hue = 330 + Math.random() * 30;
-      this.drawNebula(nx, ny, hue, 90, 60, 50 + Math.random() * 80);
-    }
-
-    // Spirals drifting outward from scattered points
-    for (let i = 0; i < 5; i++) {
-      const sx = W * (0.15 + Math.random() * 0.7);
-      const sy = H * (0.15 + Math.random() * 0.7);
-      const hue = 335 + Math.random() * 25;
-      this.drawSpiral(sx, sy, hue, 100, 65, 25 + Math.random() * 40);
-    }
-
-    // Stipple halos around a few hearts for organic texture
-    for (let i = 0; i < 3; i++) {
-      const sx = W * (0.2 + Math.random() * 0.6);
+    // Phase 3 (0.6s): Third ring + spiral
+    this.scheduleEffect(0.6, () => {
+      this.bursts.push({ x: cx, y: cy, hue: 345, sat: 100, light: 70, size: 12, life: 2.0, type: 'ring', vx: 0, vy: 0 });
+      const sx = W * (0.6 + Math.random() * 0.3);
       const sy = H * (0.2 + Math.random() * 0.6);
-      this.drawStipple(sx, sy, 340 + Math.random() * 20, 100, 70, 40 + Math.random() * 30, 25);
-    }
+      this.drawSpiral(sx, sy, 335, 100, 65, 30 + Math.random() * 30);
+    });
+
+    // Phase 4 (0.9s): Nebula bloom + stipple pop
+    this.scheduleEffect(0.9, () => {
+      this.drawFadedNebula(W * (0.5 + Math.random() * 0.4), H * (0.1 + Math.random() * 0.5), 340 + Math.random() * 20, 0.7);
+      this.drawStipple(W * (0.3 + Math.random() * 0.4), H * (0.3 + Math.random() * 0.4), 340, 100, 70, 45, 30);
+    });
+
+    // Phase 5 (1.2s): Another spiral + nebula
+    this.scheduleEffect(1.2, () => {
+      this.drawSpiral(W * (0.15 + Math.random() * 0.3), H * (0.3 + Math.random() * 0.4), 330 + Math.random() * 15, 100, 60, 25 + Math.random() * 35);
+      this.drawFadedNebula(W * (0.1 + Math.random() * 0.3), H * (0.3 + Math.random() * 0.4), 335, 0.6);
+    });
+
+    // Phase 6 (1.5s): Final glow wash + scattered stipples
+    this.scheduleEffect(1.5, () => {
+      const gctx = this.accCtx;
+      gctx.save();
+      const g2 = gctx.createRadialGradient(cx, cy, 0, cx, cy, W * 0.4);
+      g2.addColorStop(0, 'hsla(335, 100%, 65%, 0.12)');
+      g2.addColorStop(1, 'hsla(335, 100%, 55%, 0)');
+      gctx.fillStyle = g2;
+      gctx.fillRect(0, 0, W, H);
+      gctx.restore();
+      for (let i = 0; i < 2; i++) {
+        this.drawStipple(W * (0.15 + Math.random() * 0.7), H * (0.15 + Math.random() * 0.7), 335 + Math.random() * 20, 100, 68, 30 + Math.random() * 20, 20);
+      }
+    });
+
+    // Phase 7 (2.0s): Late bloom spiral
+    this.scheduleEffect(2.0, () => {
+      this.drawSpiral(W * (0.3 + Math.random() * 0.4), H * (0.2 + Math.random() * 0.5), 340, 100, 65, 20 + Math.random() * 25);
+      this.drawFadedNebula(W * (0.4 + Math.random() * 0.3), H * (0.5 + Math.random() * 0.3), 330, 0.5);
+    });
   }
 
-  private drawHeart(x: number, y: number, size: number, h: number, s: number, l: number) {
+  // Nebula with controlled opacity for fade-in effect
+  private drawFadedNebula(x: number, y: number, hue: number, opacity: number) {
     const ctx = this.accCtx;
+    const size = 50 + Math.random() * 80;
     ctx.save();
-    ctx.globalAlpha = 0.4 + Math.random() * 0.5;
-    ctx.fillStyle = `hsl(${h}, ${s}%, ${l}%)`;
-    ctx.shadowColor = `hsl(${h}, ${s}%, ${l}%)`;
-    ctx.shadowBlur = size * 0.8;
-
-    // Classic heart using two arc bumps + triangle bottom
-    const s2 = size * 0.5;
-    ctx.beginPath();
-    ctx.moveTo(x, y + size * 0.6); // bottom tip
-    // Left curve
-    ctx.bezierCurveTo(
-      x - size * 1.0, y + size * 0.1,
-      x - size * 0.7, y - size * 0.7,
-      x, y - size * 0.2
-    );
-    // Right curve
-    ctx.bezierCurveTo(
-      x + size * 0.7, y - size * 0.7,
-      x + size * 1.0, y + size * 0.1,
-      x, y + size * 0.6
-    );
-    ctx.closePath();
-    ctx.fill();
+    ctx.globalAlpha = opacity;
+    for (let layer = 0; layer < 2; layer++) {
+      const ox = (Math.random() - 0.5) * size * 0.3;
+      const oy = (Math.random() - 0.5) * size * 0.3;
+      const r = size * (0.7 + layer * 0.3);
+      const grad = ctx.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+      grad.addColorStop(0, `hsla(${(hue + layer * 25) % 360}, 90%, 65%, 0.3)`);
+      grad.addColorStop(0.4, `hsla(${(hue + layer * 25) % 360}, 90%, 55%, 0.1)`);
+      grad.addColorStop(1, `hsla(${(hue + layer * 25) % 360}, 90%, 50%, 0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x + ox, y + oy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r2 = Math.random() * size * 0.5;
+      ctx.globalAlpha = opacity * 0.6;
+      ctx.fillStyle = `hsl(${(hue + Math.random() * 20) % 360}, 100%, 70%)`;
+      ctx.beginPath();
+      ctx.arc(x + Math.cos(a) * r2, y + Math.sin(a) * r2, 0.5 + Math.random() * 0.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
   }
 
