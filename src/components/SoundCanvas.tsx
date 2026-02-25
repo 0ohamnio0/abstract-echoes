@@ -109,7 +109,8 @@ export default function SoundCanvas() {
         engine.triggerSpecialEvent(event.word);
         // Show trigger word on screen
         clearTimeout(triggerTimerRef.current);
-        const emoji = event.word === 'love' ? '❤️' : event.word === 'hello' ? '👋' : event.word === 'happy' ? '🌈' : '🎆';
+        const emojiMap: Record<string, string> = { love: '❤️', hello: '👋', happy: '🌈', wow: '🎆', thanks: '🙏', sorry: '💧', missyou: '💜' };
+        const emoji = emojiMap[event.word] || '✨';
         setTriggerDisplay({ word: event.word, text: `${emoji} "${event.transcript}"` });
         triggerTimerRef.current = window.setTimeout(() => setTriggerDisplay(null), 2500);
       });
