@@ -798,6 +798,10 @@ export class GenerativeEngine {
     const ctx = this.accCtx;
     const W = this.canvas.width, H = this.canvas.height;
     const cx = W / 2, cy = H / 2;
+    const p = this.params;
+    const ringTotal = p?.loveRingCount ?? 3;
+    const nebulaTotal = p?.loveNebulaCount ?? 3;
+    const spiralTotal = p?.loveSpiralCount ?? 3;
 
     // Phase 1 (immediate): Soft center glow + first ring
     ctx.save();
@@ -808,32 +812,34 @@ export class GenerativeEngine {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
-    this.bursts.push({ x: cx, y: cy, hue: 335, sat: 100, light: 65, size: 5, life: 1.5, type: 'ring', vx: 0, vy: 0 });
+    if (ringTotal >= 1) this.bursts.push({ x: cx, y: cy, hue: 335, sat: 100, light: 65, size: 5, life: 1.5, type: 'ring', vx: 0, vy: 0 });
 
     // Phase 2 (0.3s): Second ring + first nebula fade-in
     this.scheduleEffect(0.3, () => {
-      this.bursts.push({ x: cx, y: cy, hue: 340, sat: 100, light: 68, size: 8, life: 1.8, type: 'ring', vx: 0, vy: 0 });
-      this.drawFadedNebula(W * (0.2 + Math.random() * 0.3), H * (0.2 + Math.random() * 0.6), 330 + Math.random() * 20, 0.4);
+      if (ringTotal >= 2) this.bursts.push({ x: cx, y: cy, hue: 340, sat: 100, light: 68, size: 8, life: 1.8, type: 'ring', vx: 0, vy: 0 });
+      if (nebulaTotal >= 1) this.drawFadedNebula(W * (0.2 + Math.random() * 0.3), H * (0.2 + Math.random() * 0.6), 330 + Math.random() * 20, 0.4);
     });
 
     // Phase 3 (0.6s): Third ring + spiral
     this.scheduleEffect(0.6, () => {
-      this.bursts.push({ x: cx, y: cy, hue: 345, sat: 100, light: 70, size: 12, life: 2.0, type: 'ring', vx: 0, vy: 0 });
-      const sx = W * (0.6 + Math.random() * 0.3);
-      const sy = H * (0.2 + Math.random() * 0.6);
-      this.drawSpiral(sx, sy, 335, 100, 65, 30 + Math.random() * 30);
+      if (ringTotal >= 3) this.bursts.push({ x: cx, y: cy, hue: 345, sat: 100, light: 70, size: 12, life: 2.0, type: 'ring', vx: 0, vy: 0 });
+      if (spiralTotal >= 1) {
+        const sx = W * (0.6 + Math.random() * 0.3);
+        const sy = H * (0.2 + Math.random() * 0.6);
+        this.drawSpiral(sx, sy, 335, 100, 65, 30 + Math.random() * 30);
+      }
     });
 
     // Phase 4 (0.9s): Nebula bloom + stipple pop
     this.scheduleEffect(0.9, () => {
-      this.drawFadedNebula(W * (0.5 + Math.random() * 0.4), H * (0.1 + Math.random() * 0.5), 340 + Math.random() * 20, 0.7);
+      if (nebulaTotal >= 2) this.drawFadedNebula(W * (0.5 + Math.random() * 0.4), H * (0.1 + Math.random() * 0.5), 340 + Math.random() * 20, 0.7);
       this.drawStipple(W * (0.3 + Math.random() * 0.4), H * (0.3 + Math.random() * 0.4), 340, 100, 70, 45, 30);
     });
 
     // Phase 5 (1.2s): Another spiral + nebula
     this.scheduleEffect(1.2, () => {
-      this.drawSpiral(W * (0.15 + Math.random() * 0.3), H * (0.3 + Math.random() * 0.4), 330 + Math.random() * 15, 100, 60, 25 + Math.random() * 35);
-      this.drawFadedNebula(W * (0.1 + Math.random() * 0.3), H * (0.3 + Math.random() * 0.4), 335, 0.6);
+      if (spiralTotal >= 2) this.drawSpiral(W * (0.15 + Math.random() * 0.3), H * (0.3 + Math.random() * 0.4), 330 + Math.random() * 15, 100, 60, 25 + Math.random() * 35);
+      if (nebulaTotal >= 3) this.drawFadedNebula(W * (0.1 + Math.random() * 0.3), H * (0.3 + Math.random() * 0.4), 335, 0.6);
     });
 
     // Phase 6 (1.5s): Final glow wash + scattered stipples
@@ -853,8 +859,8 @@ export class GenerativeEngine {
 
     // Phase 7 (2.0s): Late bloom spiral
     this.scheduleEffect(2.0, () => {
-      this.drawSpiral(W * (0.3 + Math.random() * 0.4), H * (0.2 + Math.random() * 0.5), 340, 100, 65, 20 + Math.random() * 25);
-      this.drawFadedNebula(W * (0.4 + Math.random() * 0.3), H * (0.5 + Math.random() * 0.3), 330, 0.5);
+      if (spiralTotal >= 3) this.drawSpiral(W * (0.3 + Math.random() * 0.4), H * (0.2 + Math.random() * 0.5), 340, 100, 65, 20 + Math.random() * 25);
+      if (nebulaTotal >= 4) this.drawFadedNebula(W * (0.4 + Math.random() * 0.3), H * (0.5 + Math.random() * 0.3), 330, 0.5);
     });
   }
 
@@ -893,11 +899,14 @@ export class GenerativeEngine {
   private eventHello() {
     const ctx = this.accCtx;
     const W = this.canvas.width, H = this.canvas.height;
+    const p = this.params;
+    const sparkleCount = p?.helloSparkleCount ?? 80;
+    const ringCount = p?.helloRingCount ?? 4;
 
     // Horizontal wave of sparkles
     const waveY = H * (0.3 + Math.random() * 0.4);
     ctx.save();
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < sparkleCount; i++) {
       const wx = Math.random() * W;
       const wy = waveY + Math.sin(wx / W * Math.PI * 3) * 80 + (Math.random() - 0.5) * 120;
       const size = 1 + Math.random() * 4;
@@ -934,8 +943,8 @@ export class GenerativeEngine {
     ctx.restore();
 
     // Expanding rings at random points along the wave
-    for (let i = 0; i < 4; i++) {
-      const rx = W * (0.1 + i * 0.25 + Math.random() * 0.1);
+    for (let i = 0; i < ringCount; i++) {
+      const rx = W * (0.1 + i * (0.8 / ringCount) + Math.random() * 0.1);
       this.bursts.push({ x: rx, y: waveY + Math.sin(rx / W * Math.PI * 3) * 50, hue: 45, sat: 100, light: 75, size: 3, life: 1, type: 'ring', vx: 0, vy: 0 });
     }
   }
@@ -944,13 +953,16 @@ export class GenerativeEngine {
   private eventHappy() {
     const ctx = this.accCtx;
     const W = this.canvas.width, H = this.canvas.height;
+    const p = this.params;
+    const clusterCount = p?.happyClusterCount ?? 6;
+    const tendrilMax = p?.happyTendrilCount ?? 6;
 
     // Use the existing neon palette with shifting hues for organic warmth
     const bloomHues = [120, 180, 270, 330, 55, 300]; // greens, cyans, purples, pinks, golds
 
-    // Scatter 5-7 large nebula blooms across the canvas
-    const clusterCount = 5 + Math.floor(Math.random() * 3);
-    for (let c = 0; c < clusterCount; c++) {
+    // Scatter nebula blooms across the canvas
+    const actualClusters = Math.max(2, Math.floor(clusterCount * (0.8 + Math.random() * 0.4)));
+    for (let c = 0; c < actualClusters; c++) {
       const cx = W * (0.1 + Math.random() * 0.8);
       const cy = H * (0.1 + Math.random() * 0.8);
       const hue = bloomHues[c % bloomHues.length] + Math.random() * 30;
@@ -976,7 +988,7 @@ export class GenerativeEngine {
     // Organic connecting tendrils between clusters using flowing curves
     ctx.save();
     ctx.lineCap = 'round';
-    const tendrilCount = 4 + Math.floor(Math.random() * 4);
+    const tendrilCount = Math.max(0, Math.floor(tendrilMax * (0.6 + Math.random() * 0.8)));
     for (let t = 0; t < tendrilCount; t++) {
       const x1 = W * (0.1 + Math.random() * 0.8);
       const y1 = H * (0.1 + Math.random() * 0.8);
@@ -1027,9 +1039,12 @@ export class GenerativeEngine {
   private eventWow() {
     const ctx = this.accCtx;
     const W = this.canvas.width, H = this.canvas.height;
+    const p = this.params;
+    const burstMax = p?.wowBurstCount ?? 4;
+    const sparkBase = p?.wowSparkCount ?? 25;
 
     // Multiple firework bursts at random positions
-    const burstCount = 3 + Math.floor(Math.random() * 3);
+    const burstCount = Math.max(1, Math.floor(burstMax * (0.7 + Math.random() * 0.6)));
     for (let b = 0; b < burstCount; b++) {
       const bx = W * (0.15 + Math.random() * 0.7);
       const by = H * (0.15 + Math.random() * 0.5);
@@ -1052,7 +1067,7 @@ export class GenerativeEngine {
       this.bursts.push({ x: bx, y: by, hue: (hue + 40) % 360, sat: 100, light: 65, size: 3, life: 1.5, type: 'ring', vx: 0, vy: 0 });
 
       // Sparks radiating outward
-      const sparkCount = 20 + Math.floor(Math.random() * 15);
+      const sparkCount = Math.floor(sparkBase * (0.8 + Math.random() * 0.5));
       for (let i = 0; i < sparkCount; i++) {
         const a = (i / sparkCount) * Math.PI * 2 + Math.random() * 0.3;
         const sp = 3 + Math.random() * 6;
@@ -1075,11 +1090,14 @@ export class GenerativeEngine {
     const ctx = this.accCtx;
     const W = this.canvas.width, H = this.canvas.height;
     const cx = W / 2, cy = H / 2;
+    const p = this.params;
+    const emberCount = p?.thanksEmberCount ?? 15;
+    const glowAlpha = p?.thanksGlowAlpha ?? 0.12;
 
     // Phase 1: Warm center glow
     ctx.save();
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, W * 0.5);
-    grad.addColorStop(0, 'hsla(40, 100%, 75%, 0.12)');
+    grad.addColorStop(0, `hsla(40, 100%, 75%, ${glowAlpha})`);
     grad.addColorStop(0.3, 'hsla(35, 100%, 65%, 0.06)');
     grad.addColorStop(0.7, 'hsla(30, 90%, 55%, 0.02)');
     grad.addColorStop(1, 'hsla(25, 80%, 50%, 0)');
@@ -1091,7 +1109,7 @@ export class GenerativeEngine {
     // Phase 2 (0.3s): Rising warm particles like embers
     this.scheduleEffect(0.3, () => {
       this.bursts.push({ x: cx, y: cy, hue: 35, sat: 100, light: 72, size: 10, life: 1.8, type: 'ring', vx: 0, vy: 0 });
-      for (let i = 0; i < 15; i++) {
+      for (let i = 0; i < emberCount; i++) {
         const angle = Math.random() * Math.PI * 2;
         const dist = 50 + Math.random() * 150;
         const px = cx + Math.cos(angle) * dist;
@@ -1136,6 +1154,9 @@ export class GenerativeEngine {
   private eventSorry() {
     const ctx = this.accCtx;
     const W = this.canvas.width, H = this.canvas.height;
+    const p = this.params;
+    const dropMax = p?.sorryDropCount ?? 8;
+    const mistMax = p?.sorryMistCount ?? 3;
 
     // Soft blue-indigo ambient wash
     ctx.save();
@@ -1148,7 +1169,7 @@ export class GenerativeEngine {
     ctx.restore();
 
     // Phase 1: Scattered water-drop rings across canvas
-    const dropCount = 6 + Math.floor(Math.random() * 4);
+    const dropCount = Math.max(2, Math.floor(dropMax * (0.7 + Math.random() * 0.5)));
     for (let i = 0; i < dropCount; i++) {
       const delay = i * 0.2;
       this.scheduleEffect(delay, () => {
@@ -1180,7 +1201,7 @@ export class GenerativeEngine {
 
     // Phase 3 (1.5s): Delicate stipples like mist
     this.scheduleEffect(1.5, () => {
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < mistMax; i++) {
         this.drawStipple(W * (0.1 + Math.random() * 0.8), H * (0.1 + Math.random() * 0.8), 210 + Math.random() * 20, 70, 65, 35, 20);
       }
     });
@@ -1203,6 +1224,9 @@ export class GenerativeEngine {
     const ctx = this.accCtx;
     const W = this.canvas.width, H = this.canvas.height;
     const cx = W / 2, cy = H / 2;
+    const p = this.params;
+    const starCount = p?.missyouStarCount ?? 40;
+    const spiralCount = p?.missyouSpiralCount ?? 2;
 
     // Deep violet ambient glow
     ctx.save();
@@ -1215,7 +1239,7 @@ export class GenerativeEngine {
     ctx.restore();
 
     // Phase 1: Twinkling distant stars scattered across canvas
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < starCount; i++) {
       const delay = Math.random() * 1.5;
       this.scheduleEffect(delay, () => {
         const sx = W * (0.05 + Math.random() * 0.9);
@@ -1256,7 +1280,7 @@ export class GenerativeEngine {
 
     // Phase 3 (1.0s): Spirals like distant galaxies
     this.scheduleEffect(1.0, () => {
-      this.drawSpiral(W * (0.2 + Math.random() * 0.3), H * (0.3 + Math.random() * 0.4), 270 + Math.random() * 20, 80, 60, 30 + Math.random() * 40);
+      if (spiralCount >= 1) this.drawSpiral(W * (0.2 + Math.random() * 0.3), H * (0.3 + Math.random() * 0.4), 270 + Math.random() * 20, 80, 60, 30 + Math.random() * 40);
       this.drawFadedNebula(W * (0.5 + Math.random() * 0.3), H * (0.2 + Math.random() * 0.5), 265, 0.4);
     });
 
@@ -1279,7 +1303,7 @@ export class GenerativeEngine {
       gctx.fillStyle = g2;
       gctx.fillRect(0, 0, W, H);
       gctx.restore();
-      this.drawSpiral(W * (0.4 + Math.random() * 0.2), H * (0.3 + Math.random() * 0.3), 275, 80, 62, 20 + Math.random() * 25);
+      if (spiralCount >= 2) this.drawSpiral(W * (0.4 + Math.random() * 0.2), H * (0.3 + Math.random() * 0.3), 275, 80, 62, 20 + Math.random() * 25);
     });
   }
 

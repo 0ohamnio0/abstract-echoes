@@ -7,7 +7,7 @@ interface TuningPanelProps {
   onChange: (key: string, value: number) => void;
 }
 
-type SectionKey = 'classification' | 'voice' | 'snap' | 'clap' | 'laugh';
+type SectionKey = 'classification' | 'voice' | 'snap' | 'clap' | 'laugh' | 'love' | 'hello' | 'happy' | 'wow' | 'thanks' | 'sorry' | 'missyou';
 
 const SECTIONS: { key: SectionKey; label: string; icon: string; keys: string[] }[] = [
   {
@@ -29,6 +29,34 @@ const SECTIONS: { key: SectionKey; label: string; icon: string; keys: string[] }
   {
     key: 'laugh', label: '웃음 시각화', icon: '😄',
     keys: ['laughBubbleCount', 'laughBubbleSize', 'laughDotCount', 'laughSpiralProb'],
+  },
+  {
+    key: 'love', label: '사랑해', icon: '❤️',
+    keys: ['loveRingCount', 'loveNebulaCount', 'loveSpiralCount'],
+  },
+  {
+    key: 'hello', label: '안녕', icon: '👋',
+    keys: ['helloSparkleCount', 'helloRingCount'],
+  },
+  {
+    key: 'happy', label: '행복', icon: '🌈',
+    keys: ['happyClusterCount', 'happyTendrilCount'],
+  },
+  {
+    key: 'wow', label: '와/대박', icon: '🎆',
+    keys: ['wowBurstCount', 'wowSparkCount'],
+  },
+  {
+    key: 'thanks', label: '고마워', icon: '🙏',
+    keys: ['thanksEmberCount', 'thanksGlowAlpha'],
+  },
+  {
+    key: 'sorry', label: '미안해', icon: '💧',
+    keys: ['sorryDropCount', 'sorryMistCount'],
+  },
+  {
+    key: 'missyou', label: '보고싶어', icon: '💜',
+    keys: ['missyouStarCount', 'missyouSpiralCount'],
   },
 ];
 
