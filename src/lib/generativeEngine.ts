@@ -787,6 +787,9 @@ export class GenerativeEngine {
       case 'hello': this.eventHello(); break;
       case 'happy': this.eventHappy(); break;
       case 'wow': this.eventWow(); break;
+      case 'thanks': this.eventThanks(); break;
+      case 'sorry': this.eventSorry(); break;
+      case 'missyou': this.eventMissYou(); break;
     }
   }
 
@@ -1065,6 +1068,219 @@ export class GenerativeEngine {
       // Stipple cloud at each burst center
       this.drawStipple(bx, by, hue, 100, 75, 50, 40);
     }
+  }
+
+  // 🙏 고마워 — warm golden aurora ripples radiating outward
+  private eventThanks() {
+    const ctx = this.accCtx;
+    const W = this.canvas.width, H = this.canvas.height;
+    const cx = W / 2, cy = H / 2;
+
+    // Phase 1: Warm center glow
+    ctx.save();
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, W * 0.5);
+    grad.addColorStop(0, 'hsla(40, 100%, 75%, 0.12)');
+    grad.addColorStop(0.3, 'hsla(35, 100%, 65%, 0.06)');
+    grad.addColorStop(0.7, 'hsla(30, 90%, 55%, 0.02)');
+    grad.addColorStop(1, 'hsla(25, 80%, 50%, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+    this.bursts.push({ x: cx, y: cy, hue: 40, sat: 100, light: 70, size: 6, life: 1.5, type: 'ring', vx: 0, vy: 0 });
+
+    // Phase 2 (0.3s): Rising warm particles like embers
+    this.scheduleEffect(0.3, () => {
+      this.bursts.push({ x: cx, y: cy, hue: 35, sat: 100, light: 72, size: 10, life: 1.8, type: 'ring', vx: 0, vy: 0 });
+      for (let i = 0; i < 15; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 50 + Math.random() * 150;
+        const px = cx + Math.cos(angle) * dist;
+        const py = cy + Math.sin(angle) * dist;
+        this.bursts.push({
+          x: px, y: py, vx: (Math.random() - 0.5) * 0.5, vy: -1 - Math.random() * 2,
+          hue: 30 + Math.random() * 30, sat: 100, light: 65 + Math.random() * 20,
+          size: 2 + Math.random() * 4, life: 1.5 + Math.random(), type: 'shard'
+        });
+      }
+    });
+
+    // Phase 3 (0.6s): Nebula blooms in amber/gold
+    this.scheduleEffect(0.6, () => {
+      this.drawFadedNebula(W * (0.3 + Math.random() * 0.4), H * (0.3 + Math.random() * 0.4), 40 + Math.random() * 15, 0.5);
+      this.drawSpiral(W * (0.6 + Math.random() * 0.2), H * (0.3 + Math.random() * 0.3), 35, 100, 65, 30 + Math.random() * 30);
+    });
+
+    // Phase 4 (1.0s): Scattered warm stipples + more embers
+    this.scheduleEffect(1.0, () => {
+      for (let i = 0; i < 3; i++) {
+        this.drawStipple(W * (0.15 + Math.random() * 0.7), H * (0.15 + Math.random() * 0.7), 35 + Math.random() * 20, 100, 70, 40, 25);
+      }
+      this.drawFadedNebula(W * (0.2 + Math.random() * 0.3), H * (0.4 + Math.random() * 0.3), 45, 0.4);
+    });
+
+    // Phase 5 (1.5s): Final golden wash
+    this.scheduleEffect(1.5, () => {
+      const gctx = this.accCtx;
+      gctx.save();
+      const g2 = gctx.createRadialGradient(cx, cy, 0, cx, cy, W * 0.45);
+      g2.addColorStop(0, 'hsla(40, 100%, 70%, 0.06)');
+      g2.addColorStop(1, 'hsla(35, 90%, 60%, 0)');
+      gctx.fillStyle = g2;
+      gctx.fillRect(0, 0, W, H);
+      gctx.restore();
+      this.drawSpiral(W * (0.2 + Math.random() * 0.3), H * (0.3 + Math.random() * 0.4), 40, 100, 68, 25 + Math.random() * 20);
+    });
+  }
+
+  // 💧 미안해 — gentle blue ripples like rain on water
+  private eventSorry() {
+    const ctx = this.accCtx;
+    const W = this.canvas.width, H = this.canvas.height;
+
+    // Soft blue-indigo ambient wash
+    ctx.save();
+    const grad = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, W * 0.55);
+    grad.addColorStop(0, 'hsla(220, 80%, 65%, 0.08)');
+    grad.addColorStop(0.5, 'hsla(210, 70%, 55%, 0.03)');
+    grad.addColorStop(1, 'hsla(200, 60%, 45%, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+
+    // Phase 1: Scattered water-drop rings across canvas
+    const dropCount = 6 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < dropCount; i++) {
+      const delay = i * 0.2;
+      this.scheduleEffect(delay, () => {
+        const dx = W * (0.1 + Math.random() * 0.8);
+        const dy = H * (0.1 + Math.random() * 0.8);
+        const hue = 200 + Math.random() * 30;
+        this.bursts.push({ x: dx, y: dy, hue, sat: 80, light: 65, size: 2 + Math.random() * 4, life: 1.5, type: 'ring', vx: 0, vy: 0 });
+
+        // Tiny droplet glow at impact point
+        const dctx = this.accCtx;
+        dctx.save();
+        dctx.globalAlpha = 0.5;
+        const dg = dctx.createRadialGradient(dx, dy, 0, dx, dy, 15);
+        dg.addColorStop(0, `hsla(${hue}, 90%, 75%, 0.4)`);
+        dg.addColorStop(1, `hsla(${hue}, 80%, 60%, 0)`);
+        dctx.fillStyle = dg;
+        dctx.beginPath();
+        dctx.arc(dx, dy, 15, 0, Math.PI * 2);
+        dctx.fill();
+        dctx.restore();
+      });
+    }
+
+    // Phase 2 (1.0s): Flowing blue nebula trails
+    this.scheduleEffect(1.0, () => {
+      this.drawFadedNebula(W * (0.2 + Math.random() * 0.6), H * (0.3 + Math.random() * 0.4), 215 + Math.random() * 15, 0.4);
+      this.drawFadedNebula(W * (0.3 + Math.random() * 0.4), H * (0.5 + Math.random() * 0.3), 205 + Math.random() * 20, 0.35);
+    });
+
+    // Phase 3 (1.5s): Delicate stipples like mist
+    this.scheduleEffect(1.5, () => {
+      for (let i = 0; i < 3; i++) {
+        this.drawStipple(W * (0.1 + Math.random() * 0.8), H * (0.1 + Math.random() * 0.8), 210 + Math.random() * 20, 70, 65, 35, 20);
+      }
+    });
+
+    // Phase 4 (2.0s): Final soft wash
+    this.scheduleEffect(2.0, () => {
+      const gctx = this.accCtx;
+      gctx.save();
+      const g2 = gctx.createRadialGradient(W / 2, H * 0.6, 0, W / 2, H * 0.6, W * 0.35);
+      g2.addColorStop(0, 'hsla(215, 80%, 65%, 0.05)');
+      g2.addColorStop(1, 'hsla(210, 70%, 55%, 0)');
+      gctx.fillStyle = g2;
+      gctx.fillRect(0, 0, W, H);
+      gctx.restore();
+    });
+  }
+
+  // 💜 보고싶어 — distant violet starlight twinkling softly
+  private eventMissYou() {
+    const ctx = this.accCtx;
+    const W = this.canvas.width, H = this.canvas.height;
+    const cx = W / 2, cy = H / 2;
+
+    // Deep violet ambient glow
+    ctx.save();
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, W * 0.6);
+    grad.addColorStop(0, 'hsla(275, 80%, 60%, 0.10)');
+    grad.addColorStop(0.4, 'hsla(265, 70%, 50%, 0.04)');
+    grad.addColorStop(1, 'hsla(260, 60%, 40%, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+
+    // Phase 1: Twinkling distant stars scattered across canvas
+    for (let i = 0; i < 40; i++) {
+      const delay = Math.random() * 1.5;
+      this.scheduleEffect(delay, () => {
+        const sx = W * (0.05 + Math.random() * 0.9);
+        const sy = H * (0.05 + Math.random() * 0.9);
+        const hue = 260 + Math.random() * 40; // violet to blue-violet
+        const starSize = 0.5 + Math.random() * 3;
+
+        const sctx = this.accCtx;
+        sctx.save();
+        sctx.globalAlpha = 0.4 + Math.random() * 0.5;
+        sctx.fillStyle = `hsl(${hue}, 80%, ${70 + Math.random() * 25}%)`;
+        sctx.shadowColor = sctx.fillStyle;
+        sctx.shadowBlur = 10 + Math.random() * 10;
+        sctx.beginPath();
+        sctx.arc(sx, sy, starSize, 0, Math.PI * 2);
+        sctx.fill();
+
+        // Cross sparkle on brighter stars
+        if (starSize > 2) {
+          const len = starSize * 4;
+          sctx.strokeStyle = sctx.fillStyle;
+          sctx.lineWidth = 0.4;
+          sctx.globalAlpha *= 0.6;
+          sctx.beginPath();
+          sctx.moveTo(sx - len, sy); sctx.lineTo(sx + len, sy);
+          sctx.moveTo(sx, sy - len); sctx.lineTo(sx, sy + len);
+          sctx.stroke();
+        }
+        sctx.restore();
+      });
+    }
+
+    // Phase 2 (0.5s): Soft nebula clouds in violet/lavender
+    this.scheduleEffect(0.5, () => {
+      this.drawFadedNebula(W * (0.3 + Math.random() * 0.4), H * (0.3 + Math.random() * 0.4), 275 + Math.random() * 15, 0.5);
+      this.bursts.push({ x: cx, y: cy, hue: 270, sat: 80, light: 60, size: 5, life: 1.5, type: 'ring', vx: 0, vy: 0 });
+    });
+
+    // Phase 3 (1.0s): Spirals like distant galaxies
+    this.scheduleEffect(1.0, () => {
+      this.drawSpiral(W * (0.2 + Math.random() * 0.3), H * (0.3 + Math.random() * 0.4), 270 + Math.random() * 20, 80, 60, 30 + Math.random() * 40);
+      this.drawFadedNebula(W * (0.5 + Math.random() * 0.3), H * (0.2 + Math.random() * 0.5), 265, 0.4);
+    });
+
+    // Phase 4 (1.5s): More expanding rings + stipple stardust
+    this.scheduleEffect(1.5, () => {
+      this.bursts.push({ x: W * 0.3, y: H * 0.4, hue: 280, sat: 80, light: 65, size: 4, life: 1.3, type: 'ring', vx: 0, vy: 0 });
+      this.bursts.push({ x: W * 0.7, y: H * 0.6, hue: 265, sat: 80, light: 62, size: 3, life: 1.4, type: 'ring', vx: 0, vy: 0 });
+      for (let i = 0; i < 2; i++) {
+        this.drawStipple(W * (0.2 + Math.random() * 0.6), H * (0.2 + Math.random() * 0.6), 270 + Math.random() * 20, 80, 68, 40, 20);
+      }
+    });
+
+    // Phase 5 (2.0s): Final violet wash
+    this.scheduleEffect(2.0, () => {
+      const gctx = this.accCtx;
+      gctx.save();
+      const g2 = gctx.createRadialGradient(cx, cy, 0, cx, cy, W * 0.4);
+      g2.addColorStop(0, 'hsla(270, 80%, 60%, 0.05)');
+      g2.addColorStop(1, 'hsla(265, 70%, 50%, 0)');
+      gctx.fillStyle = g2;
+      gctx.fillRect(0, 0, W, H);
+      gctx.restore();
+      this.drawSpiral(W * (0.4 + Math.random() * 0.2), H * (0.3 + Math.random() * 0.3), 275, 80, 62, 20 + Math.random() * 25);
+    });
   }
 
   clear() {

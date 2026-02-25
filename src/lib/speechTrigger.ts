@@ -1,7 +1,7 @@
 // Real-time Korean speech recognition for trigger word detection
 // Uses Web Speech API (SpeechRecognition)
 
-export type TriggerWord = 'love' | 'hello' | 'happy' | 'wow';
+export type TriggerWord = 'love' | 'hello' | 'happy' | 'wow' | 'thanks' | 'sorry' | 'missyou';
 
 export interface TriggerEvent {
   word: TriggerWord;
@@ -14,6 +14,9 @@ const TRIGGER_MAP: { pattern: RegExp; word: TriggerWord }[] = [
   { pattern: /안녕|하이|헬로|반가/, word: 'hello' },
   { pattern: /행복|기뻐|즐거|신나/, word: 'happy' },
   { pattern: /와|우와|대박|멋져|짱|최고/, word: 'wow' },
+  { pattern: /고마워|고맙|감사|땡큐|땡스/, word: 'thanks' },
+  { pattern: /미안|죄송|sorry/, word: 'sorry' },
+  { pattern: /보고\s?싶|그리워|그립/, word: 'missyou' },
 ];
 
 export class SpeechTrigger {
