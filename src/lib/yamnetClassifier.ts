@@ -29,8 +29,8 @@ const CATEGORY_MAP: Record<string, SoundType> = {
 
 const RELEVANT_CATEGORIES = new Set(Object.keys(CATEGORY_MAP));
 
-const CDN_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-audio/wasm';
-const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/audio_classifier/yamnet/float32/1/yamnet.tflite';
+const CDN_BASE = '/wasm';
+const MODEL_URL = '/models/yamnet.tflite';
 
 export class YamnetClassifier {
   private classifier: any = null;
