@@ -40,6 +40,35 @@ export interface TuningParams {
   laughBubbleSize: ParamDef;
   laughDotCount: ParamDef;
   laughSpiralProb: ParamDef;
+
+  // === Trigger: 사랑해 ===
+  loveRingCount: ParamDef;
+  loveNebulaCount: ParamDef;
+  loveSpiralCount: ParamDef;
+
+  // === Trigger: 안녕 ===
+  helloSparkleCount: ParamDef;
+  helloRingCount: ParamDef;
+
+  // === Trigger: 행복 ===
+  happyClusterCount: ParamDef;
+  happyTendrilCount: ParamDef;
+
+  // === Trigger: 와/대박 ===
+  wowBurstCount: ParamDef;
+  wowSparkCount: ParamDef;
+
+  // === Trigger: 고마워 ===
+  thanksEmberCount: ParamDef;
+  thanksGlowAlpha: ParamDef;
+
+  // === Trigger: 미안해 ===
+  sorryDropCount: ParamDef;
+  sorryMistCount: ParamDef;
+
+  // === Trigger: 보고싶어 ===
+  missyouStarCount: ParamDef;
+  missyouSpiralCount: ParamDef;
 }
 
 export function createDefaultParams(): TuningParams {
@@ -74,6 +103,35 @@ export function createDefaultParams(): TuningParams {
     laughBubbleSize:  { value: 3,    min: 1,  max: 30,  step: 1,    label: '버블 기본 크기' },
     laughDotCount:    { value: 3,    min: 1,  max: 30,  step: 1,    label: '점 개수' },
     laughSpiralProb:  { value: 0.06, min: 0,  max: 0.5, step: 0.01, label: '나선 확률' },
+
+    // Trigger: 사랑해
+    loveRingCount:    { value: 3,  min: 1,  max: 8,  step: 1,    label: '❤️ 링 개수' },
+    loveNebulaCount:  { value: 3,  min: 0,  max: 8,  step: 1,    label: '❤️ 성운 개수' },
+    loveSpiralCount:  { value: 3,  min: 0,  max: 8,  step: 1,    label: '❤️ 나선 개수' },
+
+    // Trigger: 안녕
+    helloSparkleCount:{ value: 80, min: 10, max: 200, step: 5,   label: '👋 스파클 수' },
+    helloRingCount:   { value: 4,  min: 1,  max: 10, step: 1,    label: '👋 링 개수' },
+
+    // Trigger: 행복
+    happyClusterCount:{ value: 6,  min: 2,  max: 12, step: 1,    label: '🌈 클러스터 수' },
+    happyTendrilCount:{ value: 6,  min: 0,  max: 12, step: 1,    label: '🌈 덩굴 수' },
+
+    // Trigger: 와/대박
+    wowBurstCount:    { value: 4,  min: 1,  max: 10, step: 1,    label: '🎆 폭발 수' },
+    wowSparkCount:    { value: 25, min: 5,  max: 60, step: 5,    label: '🎆 불꽃 수' },
+
+    // Trigger: 고마워
+    thanksEmberCount: { value: 15, min: 3,  max: 40, step: 1,    label: '🙏 불씨 수' },
+    thanksGlowAlpha:  { value: 0.12, min: 0.02, max: 0.3, step: 0.01, label: '🙏 글로우 강도' },
+
+    // Trigger: 미안해
+    sorryDropCount:   { value: 8,  min: 2,  max: 20, step: 1,    label: '💧 물방울 수' },
+    sorryMistCount:   { value: 3,  min: 0,  max: 10, step: 1,    label: '💧 안개 수' },
+
+    // Trigger: 보고싶어
+    missyouStarCount: { value: 40, min: 10, max: 100, step: 5,   label: '💜 별빛 수' },
+    missyouSpiralCount:{ value: 2, min: 0,  max: 6,  step: 1,    label: '💜 나선 수' },
   };
 }
 
