@@ -1,9 +1,12 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+﻿import { useRef, useEffect, useState, useCallback } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { AudioAnalyzer, SoundType } from '@/lib/audioAnalyzer';
 import { GenerativeEngine } from '@/lib/generativeEngine';
 import { createDefaultParams, extractValues, TuningParams, ParamDef } from '@/lib/tuningParams';
 import { SpeechTrigger, TriggerWord } from '@/lib/speechTrigger';
+import { uploadToImgbb } from '@/lib/shareImage';
 import TuningPanel from './TuningPanel';
+import logoImage from '../../logo.png';
 
 const STORAGE_KEY = 'soundcanvas-tuning-params';
 
@@ -32,8 +35,24 @@ function saveParams(params: TuningParams) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
 }
 
-const CANVAS_WIDTH = 1408;
-const CANVAS_HEIGHT = 960;
+const CANVAS_WIDTH = 1720;
+const CANVAS_HEIGHT = 1032;
+
+const IDLE_FEATURES = {
+  volume: 0,
+  bass: 0,
+  mid: 0,
+  treble: 0,
+  frequencies: new Uint8Array(0),
+  waveform: new Uint8Array(0),
+  pitch: 0,
+  isSpeaking: false,
+  soundType: 'silence' as SoundType,
+  spectralCentroid: 0,
+  spectralFlatness: 0,
+  yamnetLabel: '',
+  yamnetConfidence: 0,
+};
 
 export default function SoundCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -43,21 +62,26 @@ export default function SoundCanvas() {
   const animFrameRef = useRef<number>(0);
   const modeIndicatorTimerRef = useRef<number>(0);
   const [isActive, setIsActive] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
+  const isStartingRef = useRef(false);
+  const startAttemptRef = useRef(0);
   const [debugVolume, setDebugVolume] = useState(0);
   const [debugSpeaking, setDebugSpeaking] = useState(false);
   const [debugSoundType, setDebugSoundType] = useState<SoundType>('silence');
   const [yamnetLabel, setYamnetLabel] = useState('');
   const [yamnetConfidence, setYamnetConfidence] = useState(0);
   const [sensitivity, setSensitivity] = useState(0.4);
-  const [threshold, setThreshold] = useState(0.06);
+  const [threshold, setThreshold] = useState(0.04);
   const [showSettings, setShowSettings] = useState(false);
   const [showTuning, setShowTuning] = useState(false);
   const [isKioskMode, setIsKioskMode] = useState(true);
   const [modeIndicator, setModeIndicator] = useState(false);
+  const [experienceStarted, setExperienceStarted] = useState(false);
   const [tuningParams, setTuningParams] = useState<TuningParams>(loadParams);
   const [triggerDisplay, setTriggerDisplay] = useState<{ word: TriggerWord; text: string } | null>(null);
   const triggerTimerRef = useRef<number>(0);
   const debugFrameRef = useRef(0);
+  const showLogo = !isStarting && !experienceStarted;
 
   const handleTuningChange = useCallback((key: string, value: number) => {
     setTuningParams(prev => {
@@ -66,10 +90,10 @@ export default function SoundCanvas() {
         engineRef.current.params = extractValues(next);
       }
       if (key === 'yamnetScoreThreshold' && analyzerRef.current) {
-        (analyzerRef.current as any).yamnet.scoreThreshold = value;
+        analyzerRef.current.setYamnetScoreThreshold(value);
       }
       if (key === 'yamnetMaxResults' && analyzerRef.current) {
-        (analyzerRef.current as any).yamnet.maxResults = value;
+        analyzerRef.current.setYamnetMaxResults(value);
       }
       saveParams(next);
       return next;
@@ -77,8 +101,10 @@ export default function SoundCanvas() {
   }, []);
 
   const loop = useCallback(() => {
-    if (!analyzerRef.current || !engineRef.current) return;
-    const features = analyzerRef.current.getFeatures();
+    if (!engineRef.current) return;
+
+    const features = analyzerRef.current?.getFeatures() ?? IDLE_FEATURES;
+    engineRef.current.setIdleMode(!analyzerRef.current);
     engineRef.current.update(features);
 
     debugFrameRef.current++;
@@ -93,49 +119,125 @@ export default function SoundCanvas() {
     animFrameRef.current = requestAnimationFrame(loop);
   }, []);
 
-  const start = useCallback(async () => {
-    if (!canvasRef.current) return;
+  const start = useCallback(async (manual = false) => {
+    if (!canvasRef.current || analyzerRef.current) return;
+    if (isStartingRef.current && !manual) return;
+
+    const attempt = ++startAttemptRef.current;
+    isStartingRef.current = true;
+    setIsStarting(true);
+
     try {
       const analyzer = new AudioAnalyzer();
       analyzer.sensitivity = sensitivity;
       analyzer.threshold = threshold;
+      analyzer.setYamnetScoreThreshold(tuningParams.yamnetScoreThreshold.value);
+      analyzer.setYamnetMaxResults(tuningParams.yamnetMaxResults.value);
       await analyzer.start();
+
+      // Ignore stale auto-start attempts if a newer manual start happened
+      if (attempt !== startAttemptRef.current) {
+        analyzer.stop();
+        return;
+      }
+
       analyzerRef.current = analyzer;
-      const engine = new GenerativeEngine(canvasRef.current);
-      engine.params = extractValues(tuningParams);
-      engineRef.current = engine;
+
+      if (!engineRef.current) {
+        const engine = new GenerativeEngine(canvasRef.current);
+        engine.params = extractValues(tuningParams);
+        engineRef.current = engine;
+      } else {
+        engineRef.current.params = extractValues(tuningParams);
+      }
 
       const speech = new SpeechTrigger((event) => {
-        engine.triggerSpecialEvent(event.word);
+        engineRef.current?.triggerSpecialEvent(event.word);
         clearTimeout(triggerTimerRef.current);
-        const emojiMap: Record<string, string> = { love: '❤️', hello: '👋', happy: '🌈', wow: '🎆', thanks: '🙏', sorry: '💧', missyou: '💜' };
-        const emoji = emojiMap[event.word] || '✨';
-        setTriggerDisplay({ word: event.word, text: `${emoji} "${event.transcript}"` });
+        const emojiMap: Record<string, string> = { love: 'LOVE', hello: 'HELLO', happy: 'HAPPY', wow: 'WOW', thanks: 'THANKS', sorry: 'SORRY', missyou: 'MISSYOU' };
+        const emoji = emojiMap[event.word] || 'TRIGGER';
+        setTriggerDisplay({ word: event.word, text: emoji + ' "' + event.transcript + '"' });
         triggerTimerRef.current = window.setTimeout(() => setTriggerDisplay(null), 2500);
       });
       speech.start();
       speechRef.current = speech;
 
       setIsActive(true);
-      animFrameRef.current = requestAnimationFrame(loop);
+      setExperienceStarted(true);
     } catch (e) {
       console.error('Microphone error:', e);
-      alert('마이크 접근 권한이 필요합니다.');
+      if (manual) {
+        alert('Microphone access is required.');
+      }
+    } finally {
+      if (attempt === startAttemptRef.current) {
+        isStartingRef.current = false;
+        setIsStarting(false);
+      }
     }
-  }, [loop, sensitivity, threshold, tuningParams]);
+  }, [sensitivity, threshold, tuningParams]);
 
   const stop = useCallback(() => {
-    cancelAnimationFrame(animFrameRef.current);
     analyzerRef.current?.stop();
     analyzerRef.current = null;
     speechRef.current?.stop();
     speechRef.current = null;
+    isStartingRef.current = false;
+    setIsStarting(false);
+    setTriggerDisplay(null);
     setIsActive(false);
   }, []);
 
   const clear = useCallback(() => {
     engineRef.current?.clear();
   }, []);
+
+  const resetToIdle = useCallback(() => {
+    clearInterval(qrCountdownRef.current);
+    setQrData(null);
+    setIsUploading(false);
+    setShowSaveMenu(false);
+    setShowSettings(false);
+    setShowTuning(false);
+    setExperienceStarted(false);
+    stop();
+    clear();
+  }, [clear, stop]);
+
+  const handleShareQR = useCallback(async () => {
+    if (isUploadingRef.current || !engineRef.current) return;
+    isUploadingRef.current = true;
+    setIsUploading(true);
+    clearInterval(qrCountdownRef.current);
+    setQrData(null);
+    try {
+      const dataUrl = engineRef.current.toPortraitDataURL();
+      const imgUrl = await uploadToImgbb(dataUrl);
+      const shareUrl = String(import.meta.env.VITE_SHARE_PAGE_URL) + '?img=' + encodeURIComponent(imgUrl);
+      setQrData({ url: shareUrl, countdown: 60 });
+      qrCountdownRef.current = window.setInterval(() => {
+        setQrData(prev => {
+          if (!prev) return null;
+          if (prev.countdown <= 1) {
+            clearInterval(qrCountdownRef.current);
+            resetToIdle();
+            return null;
+          }
+          return { ...prev, countdown: prev.countdown - 1 };
+        });
+      }, 1000);
+    } catch (err) {
+      console.error('QR share failed:', err);
+    } finally {
+      isUploadingRef.current = false;
+      setIsUploading(false);
+    }
+  }, [resetToIdle]);
+
+  const [qrData, setQrData] = useState<{ url: string; countdown: number } | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const isUploadingRef = useRef(false);
+  const qrCountdownRef = useRef<number>(0);
 
   const [showSaveMenu, setShowSaveMenu] = useState(false);
 
@@ -168,6 +270,14 @@ export default function SoundCanvas() {
     analyzerRef.current?.setThreshold(val);
   }, []);
 
+  useEffect(() => {
+    if (!canvasRef.current || engineRef.current) return;
+    const engine = new GenerativeEngine(canvasRef.current);
+    engine.params = extractValues(tuningParams);
+    engineRef.current = engine;
+    animFrameRef.current = requestAnimationFrame(loop);
+  }, [loop, tuningParams]);
+
   // AudioContext watchdog — suspended 상태 자동 복구 (상시 전시용)
   useEffect(() => {
     if (!isActive) return;
@@ -193,7 +303,7 @@ export default function SoundCanvas() {
       if (e.code === 'Space' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
         if ((e.target as HTMLElement).tagName === 'INPUT') return;
         e.preventDefault();
-        if (isActive) stop(); else start();
+        if (isActive) stop(); else start(true);
         return;
       }
       // Delete : 캔버스 초기화
@@ -202,18 +312,24 @@ export default function SoundCanvas() {
         clear();
         return;
       }
+      // Q : 이미지 공유 QR 코드
+      if (e.code === 'KeyQ' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        if (!isActive) {
+          start(true);
+        } else if (isUploading || qrData) {
+          resetToIdle();
+        } else {
+          handleShareQR();
+        }
+        return;
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isActive, start, stop, clear]);
+  }, [isActive, isUploading, qrData, start, stop, clear, handleShareQR, resetToIdle]);
 
   // 전시 모드 진입 시 마이크 자동 시작
-  useEffect(() => {
-    if (isKioskMode && !isActive) {
-      start();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isKioskMode]);
 
   // 24시간 자동 재시작 — 장기 메모리 누수 방지 (상시 전시용)
   useEffect(() => {
@@ -223,11 +339,12 @@ export default function SoundCanvas() {
 
   useEffect(() => {
     return () => {
-      cancelAnimationFrame(animFrameRef.current);
       analyzerRef.current?.stop();
       speechRef.current?.stop();
       clearTimeout(triggerTimerRef.current);
       clearTimeout(modeIndicatorTimerRef.current);
+      clearInterval(qrCountdownRef.current);
+      cancelAnimationFrame(animFrameRef.current);
     };
   }, []);
 
@@ -237,8 +354,12 @@ export default function SoundCanvas() {
         ref={canvasRef}
         width={CANVAS_WIDTH}
         height={CANVAS_HEIGHT}
-        className="max-w-full max-h-full border border-border/20 rounded-sm"
-        style={{ imageRendering: 'auto' }}
+        style={{
+          width: `min(100vw, ${(CANVAS_WIDTH / CANVAS_HEIGHT * 100).toFixed(4)}vh)`,
+          height: 'auto',
+          aspectRatio: `${CANVAS_WIDTH} / ${CANVAS_HEIGHT}`,
+          imageRendering: 'auto',
+        }}
       />
 
       {/* Controls — 세팅 모드에서만 표시 */}
@@ -246,7 +367,7 @@ export default function SoundCanvas() {
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-4 items-center z-10">
           {!isActive ? (
             <button
-              onClick={start}
+              onClick={() => start(true)}
               className="px-8 py-3 rounded-full bg-primary/20 border border-primary/40 text-primary hover:bg-primary/30 transition-all duration-300 glow-pink text-sm tracking-widest uppercase font-light"
             >
               마이크 시작
@@ -266,7 +387,7 @@ export default function SoundCanvas() {
                 {showSaveMenu && (
                   <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-card/90 backdrop-blur border border-border rounded-lg p-2 flex flex-col gap-1 w-48 z-30">
                     <button onClick={saveLandscape} className="text-xs text-left px-3 py-2 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
-                      🖥️ 원본 (1408×960)
+                      🖥️ 원본 (1720×1032)
                     </button>
                     <button onClick={savePortrait} className="text-xs text-left px-3 py-2 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
                       📱 폰 배경화면 (1080×2340)
@@ -349,14 +470,16 @@ export default function SoundCanvas() {
         <TuningPanel params={tuningParams} onChange={handleTuningChange} />
       )}
 
-      {/* Title */}
-      {!isActive && (
+      {/* Title / Logo */}
+      {showLogo && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
-          <h1 className="text-5xl font-extralight tracking-[0.3em] text-foreground/80 text-glow mb-4">
-            SOUND REACTIVE
-          </h1>
-          <p className="text-muted-foreground text-sm tracking-[0.2em] uppercase">
-            목소리로 추상화를 그려보세요
+          <img
+            src={logoImage}
+            alt="Bremen Backyard"
+            className="w-[min(52vw,680px)] h-auto opacity-95 drop-shadow-[0_14px_34px_rgba(0,0,0,0.55)]"
+          />
+          <p className="mt-5 text-sm tracking-[0.28em] uppercase text-foreground/75 drop-shadow-[0_2px_8px_rgba(0,0,0,0.65)]">
+            PRESS BUTTON TO START
           </p>
         </div>
       )}
@@ -406,6 +529,11 @@ export default function SoundCanvas() {
               YAMNet: {yamnetLabel} ({(yamnetConfidence * 100).toFixed(0)}%)
             </span>
           )}
+          {triggerDisplay && (
+            <span className="text-xs text-muted-foreground tracking-wider uppercase">
+              {triggerDisplay.text}
+            </span>
+          )}
         </div>
       )}
 
@@ -417,12 +545,24 @@ export default function SoundCanvas() {
         </div>
       )}
 
-      {/* Trigger word display */}
-      {triggerDisplay && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-30 animate-in fade-in zoom-in-95 duration-300">
-          <div className="text-3xl font-light tracking-widest text-foreground/90 text-center text-glow px-8 py-4 bg-card/30 backdrop-blur-sm rounded-xl border border-border/30">
-            {triggerDisplay.text}
-          </div>
+
+      {/* QR 공유 — 하단 우측 */}
+      {(isUploading || qrData) && (
+        <div className="absolute bottom-6 right-6 z-50">
+          {isUploading ? (
+            <div className="bg-card/90 backdrop-blur border border-border rounded-xl p-5 flex flex-col items-center gap-3">
+              <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <span className="text-xs text-muted-foreground tracking-widest">업로드 중...</span>
+            </div>
+          ) : qrData && (
+            <div className="bg-card/90 backdrop-blur border border-border rounded-xl p-4 flex flex-col items-center gap-2">
+              <p className="text-[10px] text-muted-foreground tracking-widest uppercase mb-1">폰으로 스캔하여 저장</p>
+              <div className="bg-white p-2 rounded-lg">
+                <QRCodeSVG value={qrData.url} size={160} />
+              </div>
+              <p className="text-xs text-muted-foreground font-mono">{qrData.countdown}초 후 사라짐</p>
+            </div>
+          )}
         </div>
       )}
 

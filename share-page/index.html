@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Abstract Echoes — 나의 소리 풍경</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #08080f;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 24px;
+      gap: 0;
+    }
+
+    .label {
+      font-size: 10px;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      color: #555;
+      margin-bottom: 24px;
+    }
+
+    .image-wrap {
+      width: 100%;
+      max-width: 340px;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      box-shadow:
+        0 0 60px rgba(120, 80, 255, 0.12),
+        0 0 120px rgba(80, 200, 255, 0.06);
+    }
+
+    .image-wrap img {
+      width: 100%;
+      display: block;
+    }
+
+    .hint {
+      margin-top: 20px;
+      font-size: 11px;
+      color: #444;
+      letter-spacing: 0.12em;
+      text-align: center;
+      line-height: 1.8;
+    }
+
+    .hint strong {
+      color: #888;
+    }
+
+    .title {
+      margin-top: 32px;
+      font-size: 10px;
+      letter-spacing: 0.4em;
+      text-transform: uppercase;
+      color: #2a2a3a;
+    }
+
+    .error {
+      color: #555;
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <p class="label">Abstract Echoes</p>
+  <div id="content"></div>
+  <p class="title">Sound Reactive Art</p>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get('img') || '';
+    const imgUrl = /^https?:\/\//.test(raw) ? raw : '';
+
+    const el = document.getElementById('content');
+    if (imgUrl) {
+      el.innerHTML =
+        '<div class="image-wrap"><img src="' + imgUrl + '" alt="나의 소리 풍경" /></div>' +
+        '<p class="hint"><strong>이미지를 길게 눌러</strong><br>사진 앱에 저장하세요</p>';
+    } else {
+      el.innerHTML = '<p class="error">이미지를 찾을 수 없습니다.</p>';
+    }
+  </script>
+</body>
+</html>

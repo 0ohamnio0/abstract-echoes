@@ -10,14 +10,31 @@ export interface TriggerEvent {
 
 // Trigger word mapping: Korean phrases → event type
 const TRIGGER_MAP: { pattern: RegExp; word: TriggerWord }[] = [
-  { pattern: /사랑해|사랑|좋아해|좋아/, word: 'love' },
+  { pattern: /사랑해|사랑|좋아해|좋아|조아해|조아|러브/, word: 'love' },
   { pattern: /안녕|하이|헬로|반가/, word: 'hello' },
   { pattern: /행복|기뻐|즐거|신나/, word: 'happy' },
   { pattern: /와|우와|대박|멋져|짱|최고/, word: 'wow' },
   { pattern: /고마워|고맙|감사|땡큐|땡스/, word: 'thanks' },
   { pattern: /미안|죄송|sorry/, word: 'sorry' },
-  { pattern: /보고\s?싶|그리워|그립/, word: 'missyou' },
+  { pattern: /보고싶|그리워|그립/, word: 'missyou' },
 ];
+
+function normalizeTranscript(transcript: string): string {
+  return transcript
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[.,!?~"'`]/g, '');
+}
+
+function matchTrigger(transcript: string): TriggerWord | null {
+  const normalized = normalizeTranscript(transcript);
+  for (const { pattern, word } of TRIGGER_MAP) {
+    if (pattern.test(transcript) || pattern.test(normalized)) {
+      return word;
+    }
+  }
+  return null;
+}
 
 export class SpeechTrigger {
   private recognition: any = null;
@@ -59,7 +76,7 @@ export class SpeechTrigger {
     this.recognition.lang = 'ko-KR';
     this.recognition.continuous = true;
     this.recognition.interimResults = true;
-    this.recognition.maxAlternatives = 1;
+    this.recognition.maxAlternatives = 3;
     this.hadResult = false;
     this.lastStartTime = Date.now();
 
@@ -67,20 +84,28 @@ export class SpeechTrigger {
       this.hadResult = true;
       this.consecutiveRestarts = 0;
       const now = Date.now();
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript.trim();
-        if (!transcript) continue;
 
-        for (const { pattern, word } of TRIGGER_MAP) {
-          if (pattern.test(transcript)) {
-            const lastTime = this.cooldowns.get(word) || 0;
-            if (now - lastTime > this.cooldownMs) {
-              this.cooldowns.set(word, now);
-              this.onTrigger?.({ word, transcript });
-              console.log(`[SpeechTrigger] "${transcript}" → ${word}`);
-            }
-            break;
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        const maxAlt = Math.min(result.length ?? 1, 3);
+        const alternatives: string[] = [];
+
+        for (let j = 0; j < maxAlt; j++) {
+          const transcript = result[j]?.transcript?.trim?.() ?? '';
+          if (transcript) alternatives.push(transcript);
+        }
+
+        for (const transcript of alternatives) {
+          const word = matchTrigger(transcript);
+          if (!word) continue;
+
+          const lastTime = this.cooldowns.get(word) || 0;
+          if (now - lastTime > this.cooldownMs) {
+            this.cooldowns.set(word, now);
+            this.onTrigger?.({ word, transcript });
+            console.log(`[SpeechTrigger] "${transcript}" -> ${word}`);
           }
+          break;
         }
       }
     };

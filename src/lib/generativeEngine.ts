@@ -29,6 +29,11 @@ const CLAP_PALETTE = [[330, 100, 65], [25, 100, 55], [55, 100, 55], [0, 100, 55]
 // Laugh: vibrant neon playful (matching main palette)
 const LAUGH_PALETTE = [[300, 100, 60], [120, 100, 55], [350, 100, 70], [270, 80, 60], [55, 100, 55]];
 
+// Runtime guards for long-running kiosk sessions.
+const MAX_ACTIVE_FLOW_POINTS = 320;
+const MAX_BURSTS = 1400;
+const MAX_SCHEDULED_EFFECTS = 300;
+
 interface TrailPoint {
   x: number; y: number;
   hue: number; sat: number; light: number;
@@ -74,11 +79,26 @@ export class GenerativeEngine {
   private lastSnapTime = 0;
   private lastLaughTime = 0;
 
+  // Export focus area based on recent voice trails
+  private hasTrailFocus = false;
+  private trailMinX = Number.POSITIVE_INFINITY;
+  private trailMinY = Number.POSITIVE_INFINITY;
+  private trailMaxX = Number.NEGATIVE_INFINITY;
+  private trailMaxY = Number.NEGATIVE_INFINITY;
+
   // Scheduled delayed effects queue
   private scheduledEffects: { time: number; fn: () => void }[] = [];
 
+  // IDLE mode — ambient animation only, no voice drawing
+  private idleMode = false;
+  private idleEventCooldownFrames = 0;
+
   // Tuning params (set externally)
   params: ParamValues | null = null;
+
+  setIdleMode(idle: boolean) {
+    this.idleMode = idle;
+  }
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -104,6 +124,16 @@ export class GenerativeEngine {
 
   update(features: AudioFeatures) {
     this.time += 0.016;
+
+    // IDLE mode: logo overlay above random background effect events
+    if (this.idleMode) {
+      this.idleAnimTick();
+      this.processScheduledEffects();
+      this.updateBursts();
+      this.tickIdleEventShowcase();
+      this.render();
+      return;
+    }
 
     if (features.isSpeaking) {
       this.framesSinceSpeaking = 0;
@@ -143,12 +173,55 @@ export class GenerativeEngine {
     this.render();
   }
 
+  private tickIdleEventShowcase() {
+    if (this.idleEventCooldownFrames > 0) {
+      this.idleEventCooldownFrames--;
+      return;
+    }
+
+    // Low chance per frame; creates a gentle random showcase cadence.
+    if (Math.random() > 0.03) return;
+
+    const randomWord: TriggerWord[] = ['love', 'hello', 'happy', 'wow', 'thanks', 'sorry', 'missyou'];
+    const pickWord = randomWord[Math.floor(Math.random() * randomWord.length)];
+    const roll = Math.random();
+
+    if (roll < 0.45) {
+      this.triggerSpecialEvent(pickWord);
+    } else if (roll < 0.63) {
+      this.onSnap(this.createIdleFeature(0.58, 'snap'));
+    } else if (roll < 0.81) {
+      this.onClap(this.createIdleFeature(0.62, 'clap'));
+    } else {
+      this.onLaugh(this.createIdleFeature(0.55, 'laugh'));
+    }
+
+    this.idleEventCooldownFrames = 90 + Math.floor(Math.random() * 80); // ~1.5s to 2.8s
+  }
+
+  private createIdleFeature(volume: number, soundType: SoundType): AudioFeatures {
+    return {
+      volume,
+      bass: 0.35 + Math.random() * 0.2,
+      mid: 0.35 + Math.random() * 0.2,
+      treble: 0.35 + Math.random() * 0.2,
+      frequencies: new Uint8Array(0),
+      waveform: new Uint8Array(0),
+      pitch: 140 + Math.random() * 220,
+      isSpeaking: true,
+      soundType,
+      spectralCentroid: 0.4,
+      spectralFlatness: 0.3,
+      yamnetLabel: '',
+      yamnetConfidence: 0,
+    };
+  }
+
   // ═══════════════════════════════════════════
   //  AMBIENT — 무음 시 미세 파티클 (LED 번인 방지)
   // ═══════════════════════════════════════════
   private ambientTick() {
     this.ambientFrame++;
-    // 약 30프레임(~0.5초)마다 1개씩, 아주 희미한 먼지 파티클 생성
     if (this.ambientFrame % 30 !== 0) return;
 
     const ctx = this.accCtx;
@@ -169,14 +242,78 @@ export class GenerativeEngine {
     ctx.restore();
   }
 
+  // ═══════════════════════════════════════════
+  //  IDLE ANIMATION — 대기 화면 환경 애니메이션
+  // ═══════════════════════════════════════════
+  private idleAnimTick() {
+    this.ambientFrame++;
+    const ctx = this.accCtx;
+    const W = this.canvas.width, H = this.canvas.height;
+
+    // 매우 느린 페이드 (잔상 유지)
+    if (this.ambientFrame % 4 === 0) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.005)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
+
+    // ~0.5초마다 희미한 부유 파티클
+    if (this.ambientFrame % 30 === 0) {
+      const x = W * 0.1 + Math.random() * W * 0.8;
+      const y = H * 0.1 + Math.random() * H * 0.8;
+      const [h, s] = NEON_COLORS[Math.floor(Math.random() * NEON_COLORS.length)];
+      const r = 0.8 + Math.random() * 2.5;
+      ctx.save();
+      ctx.globalAlpha = 0.018 + Math.random() * 0.022;
+      ctx.fillStyle = `hsl(${h}, ${s}%, 65%)`;
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.shadowBlur = r * 6;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // ~3초마다 조용한 성운 블룸
+    if (this.ambientFrame % 180 === 0) {
+      const cx = W * (0.15 + Math.random() * 0.7);
+      const cy = H * (0.15 + Math.random() * 0.7);
+      const [h] = NEON_COLORS[Math.floor(Math.random() * NEON_COLORS.length)];
+      this.drawFadedNebula(cx, cy, h, 0.06 + Math.random() * 0.07);
+    }
+
+    // ~5초마다 조용히 확장하는 링
+    if (this.ambientFrame % 300 === 0) {
+      const cx = W * (0.2 + Math.random() * 0.6);
+      const cy = H * (0.2 + Math.random() * 0.6);
+      const [h, s, l] = NEON_COLORS[Math.floor(Math.random() * NEON_COLORS.length)];
+      this.bursts.push({ x: cx, y: cy, hue: h, sat: s, light: l, size: 4, life: 2.5, type: 'ring', vx: 0, vy: 0 });
+    }
+  }
+
   private scheduleEffect(delaySec: number, fn: () => void) {
+    if (this.scheduledEffects.length >= MAX_SCHEDULED_EFFECTS) {
+      // Drop oldest delayed effect first to prevent unbounded queue growth.
+      this.scheduledEffects.shift();
+    }
     this.scheduledEffects.push({ time: this.time + delaySec, fn });
   }
 
   private processScheduledEffects() {
-    const ready = this.scheduledEffects.filter(e => this.time >= e.time);
-    for (const e of ready) e.fn();
-    this.scheduledEffects = this.scheduledEffects.filter(e => this.time < e.time);
+    if (this.scheduledEffects.length === 0) return;
+
+    // In-place compaction to reduce per-frame array allocations.
+    let write = 0;
+    for (let i = 0; i < this.scheduledEffects.length; i++) {
+      const effect = this.scheduledEffects[i];
+      if (this.time >= effect.time) {
+        effect.fn();
+      } else {
+        this.scheduledEffects[write++] = effect;
+      }
+    }
+    this.scheduledEffects.length = write;
   }
 
   private pick(palette: number[][]): [number, number, number] {
@@ -188,6 +325,14 @@ export class GenerativeEngine {
     const idx = Math.abs(Math.floor((f.pitch / 600 * NEON_COLORS.length + this.colorOffset / 25))) % NEON_COLORS.length;
     const [h, s, l] = NEON_COLORS[idx];
     return [(h + f.pitch * 0.04 + this.colorOffset + this.time * 2) % 360, s, l + f.volume * 10];
+  }
+
+  private registerTrailPoint(x: number, y: number) {
+    this.hasTrailFocus = true;
+    this.trailMinX = Math.min(this.trailMinX, x);
+    this.trailMinY = Math.min(this.trailMinY, y);
+    this.trailMaxX = Math.max(this.trailMaxX, x);
+    this.trailMaxY = Math.max(this.trailMaxY, y);
   }
 
   // ═══════════════════════════════════════════
@@ -214,6 +359,11 @@ export class GenerativeEngine {
       const px = this.cursorX + Math.cos(oa) * od;
       const py = this.cursorY + Math.sin(oa) * od;
       flow.points.push({ x: px, y: py, hue: (h + fi * 40) % 360, sat: s, light: l, size: (1 + f.volume * 6 + f.bass * 4) * lineSizeMul, volume: f.volume });
+      if (flow.points.length > MAX_ACTIVE_FLOW_POINTS) {
+        // Trim in chunks to avoid repeated single-item shifts.
+        flow.points.splice(0, flow.points.length - MAX_ACTIVE_FLOW_POINTS);
+      }
+      this.registerTrailPoint(px, py);
 
       if (Math.random() < f.volume * stippleProb && fi === 0) this.drawStipple(px + (Math.random() - 0.5) * 40, py + (Math.random() - 0.5) * 40, h, s, l, stippleSize + f.volume * 50, 20 + Math.floor(f.volume * 60));
       if (Math.random() < spiralProb && fi === 0) this.drawSpiral(px, py, h, s, l, 25 + f.volume * 50);
@@ -683,6 +833,11 @@ export class GenerativeEngine {
   // ═══════════════════════════════════════════
   private updateBursts() {
     const ctx = this.accCtx;
+    if (this.bursts.length > MAX_BURSTS) {
+      this.bursts.splice(0, this.bursts.length - MAX_BURSTS);
+    }
+
+    let write = 0;
     for (const b of this.bursts) {
       if (b.type === 'ring') { b.size += 3; b.life -= 0.015; }
       else if (b.type === 'starburst') { b.life -= 0.012; }
@@ -703,8 +858,14 @@ export class GenerativeEngine {
         ctx.fillStyle = grad;
         ctx.beginPath(); ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2); ctx.fill();
       } else if (b.type === 'ring') {
-        ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.shadowColor = color; ctx.shadowBlur = 20;
-        ctx.beginPath(); ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2); ctx.stroke();
+        // Restore classic concentric circle style
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 20;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2);
+        ctx.stroke();
       } else if (b.type === 'shard') {
         ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 10;
         const angle = Math.atan2(b.vy, b.vx);
@@ -717,8 +878,10 @@ export class GenerativeEngine {
         ctx.closePath(); ctx.fill();
       }
       ctx.restore();
+
+      this.bursts[write++] = b;
     }
-    this.bursts = this.bursts.filter(b => b.life > 0);
+    this.bursts.length = write;
   }
 
   // ═══════════════════════════════════════════
@@ -796,12 +959,53 @@ export class GenerativeEngine {
     const out = document.createElement('canvas');
     out.width = w; out.height = h;
     const o = out.getContext('2d')!;
-    // center-crop from landscape source
-    const srcRatio = w / h; // target aspect
-    let sw = src.width, sh = src.width / srcRatio;
-    if (sh > src.height) { sh = src.height; sw = src.height * srcRatio; }
-    const sx = (src.width - sw) / 2, sy = (src.height - sh) / 2;
-    o.fillStyle = '#000'; o.fillRect(0, 0, w, h);
+
+    o.fillStyle = '#000';
+    o.fillRect(0, 0, w, h);
+    const targetRatio = w / h;
+
+    if (this.hasTrailFocus) {
+      const cx = (this.trailMinX + this.trailMaxX) * 0.5;
+      const cy = (this.trailMinY + this.trailMaxY) * 0.5;
+
+      const spanX = Math.max(140, this.trailMaxX - this.trailMinX);
+      const spanY = Math.max(140, this.trailMaxY - this.trailMinY);
+
+      // Add generous breathing room so export keeps surrounding composition
+      const desiredWBase = spanX + Math.max(220, spanX * 1.2);
+      const desiredHBase = spanY + Math.max(260, spanY * 1.3);
+
+      let sw = desiredWBase;
+      let sh = sw / targetRatio;
+      if (sh < desiredHBase) {
+        sh = desiredHBase;
+        sw = sh * targetRatio;
+      }
+
+      // Keep exact aspect ratio while clamping to valid source bounds.
+      const maxSw = Math.min(src.width, src.height * targetRatio);
+      const minSw = Math.min(maxSw, Math.max(src.width * 0.35, src.height * targetRatio * 0.55));
+      sw = Math.min(maxSw, Math.max(minSw, sw));
+      sh = sw / targetRatio;
+
+      let sx = cx - sw * 0.5;
+      let sy = cy - sh * 0.5;
+      sx = Math.max(0, Math.min(src.width - sw, sx));
+      sy = Math.max(0, Math.min(src.height - sh, sy));
+
+      o.drawImage(src, sx, sy, sw, sh, 0, 0, w, h);
+      return out.toDataURL('image/png');
+    }
+
+    // Fallback before any voice trail exists: center-crop with exact target ratio.
+    let sw = src.width;
+    let sh = sw / targetRatio;
+    if (sh > src.height) {
+      sh = src.height;
+      sw = sh * targetRatio;
+    }
+    const sx = (src.width - sw) * 0.5;
+    const sy = (src.height - sh) * 0.5;
     o.drawImage(src, sx, sy, sw, sh, 0, 0, w, h);
     return out.toDataURL('image/png');
   }
@@ -977,45 +1181,34 @@ export class GenerativeEngine {
     }
   }
 
-  // 🌈 행복 — bioluminescent bloom: nebula clusters + spirals + stipple clouds
+  // 🌈 행복 — bioluminescent bloom: nebula clusters + spirals + stipple clouds (순차 등장)
   private eventHappy() {
-    const ctx = this.accCtx;
     const W = this.canvas.width, H = this.canvas.height;
     const p = this.params;
     const clusterCount = p?.happyClusterCount ?? 6;
     const tendrilMax = p?.happyTendrilCount ?? 6;
 
-    // Use the existing neon palette with shifting hues for organic warmth
-    const bloomHues = [120, 180, 270, 330, 55, 300]; // greens, cyans, purples, pinks, golds
-
-    // Scatter nebula blooms across the canvas
+    const bloomHues = [120, 180, 270, 330, 55, 300];
     const actualClusters = Math.max(2, Math.floor(clusterCount * (0.8 + Math.random() * 0.4)));
+
+    // 클러스터: 0.12초 간격으로 순차 등장
     for (let c = 0; c < actualClusters; c++) {
       const cx = W * (0.1 + Math.random() * 0.8);
       const cy = H * (0.1 + Math.random() * 0.8);
       const hue = bloomHues[c % bloomHues.length] + Math.random() * 30;
       const size = 60 + Math.random() * 100;
-
-      // Layered nebula glow
-      this.drawNebula(cx, cy, hue, 100, 55, size);
-
-      // Dense stipple cloud around each nebula
-      this.drawStipple(cx, cy, hue, 100, 65, size * 0.8, 30 + Math.floor(Math.random() * 30));
-
-      // Spiral emanating from each cluster
-      if (Math.random() < 0.6) {
-        this.drawSpiral(
-          cx + (Math.random() - 0.5) * 40,
-          cy + (Math.random() - 0.5) * 40,
-          (hue + 30) % 360, 100, 60,
-          30 + Math.random() * 50
-        );
-      }
+      const doSpiral = Math.random() < 0.6;
+      const spiralX = cx + (Math.random() - 0.5) * 40;
+      const spiralY = cy + (Math.random() - 0.5) * 40;
+      const spiralSize = 30 + Math.random() * 50;
+      this.scheduleEffect(c * 0.12, () => {
+        this.drawNebula(cx, cy, hue, 100, 55, size);
+        this.drawStipple(cx, cy, hue, 100, 65, size * 0.8, 30 + Math.floor(Math.random() * 30));
+        if (doSpiral) this.drawSpiral(spiralX, spiralY, (hue + 30) % 360, 100, 60, spiralSize);
+      });
     }
 
-    // Organic connecting tendrils between clusters using flowing curves
-    ctx.save();
-    ctx.lineCap = 'round';
+    // 테두리 라인: 0.15초 간격으로 하나씩 그려지듯 등장
     const tendrilCount = Math.max(0, Math.floor(tendrilMax * (0.6 + Math.random() * 0.8)));
     for (let t = 0; t < tendrilCount; t++) {
       const x1 = W * (0.1 + Math.random() * 0.8);
@@ -1025,42 +1218,50 @@ export class GenerativeEngine {
       const cpx = (x1 + x2) / 2 + (Math.random() - 0.5) * 300;
       const cpy = (y1 + y2) / 2 + (Math.random() - 0.5) * 300;
       const hue = bloomHues[Math.floor(Math.random() * bloomHues.length)];
-
-      ctx.globalAlpha = 0.15 + Math.random() * 0.2;
-      ctx.strokeStyle = `hsl(${hue}, 100%, 60%)`;
-      ctx.lineWidth = 0.5 + Math.random() * 2;
-      ctx.shadowColor = ctx.strokeStyle;
-      ctx.shadowBlur = 15;
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.quadraticCurveTo(cpx, cpy, x2, y2);
-      ctx.stroke();
+      const alpha = 0.15 + Math.random() * 0.2;
+      const lw = 0.5 + Math.random() * 2;
+      this.scheduleEffect(actualClusters * 0.12 + t * 0.15, () => {
+        const ctx = this.accCtx;
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = `hsl(${hue}, 100%, 60%)`;
+        ctx.lineWidth = lw;
+        ctx.shadowColor = ctx.strokeStyle;
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.quadraticCurveTo(cpx, cpy, x2, y2);
+        ctx.stroke();
+        ctx.restore();
+      });
     }
-    ctx.restore();
 
-    // Soft full-screen multi-hue glow wash
-    ctx.save();
-    for (let g = 0; g < 3; g++) {
-      const gx = W * (0.2 + Math.random() * 0.6);
-      const gy = H * (0.2 + Math.random() * 0.6);
-      const gr = W * (0.2 + Math.random() * 0.15);
-      const hue = bloomHues[Math.floor(Math.random() * bloomHues.length)];
-      const grad = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
-      grad.addColorStop(0, `hsla(${hue}, 100%, 60%, 0.096)`);
-      grad.addColorStop(0.5, `hsla(${hue}, 100%, 50%, 0.032)`);
-      grad.addColorStop(1, `hsla(${hue}, 100%, 40%, 0)`);
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, W, H);
-    }
-    ctx.restore();
-
-    // Animated expanding rings from cluster centers
-    for (let i = 0; i < 3; i++) {
-      const rx = W * (0.2 + Math.random() * 0.6);
-      const ry = H * (0.2 + Math.random() * 0.6);
-      const hue = bloomHues[Math.floor(Math.random() * bloomHues.length)];
-      this.bursts.push({ x: rx, y: ry, hue, sat: 100, light: 60, size: 3, life: 1.2, type: 'ring', vx: 0, vy: 0 });
-    }
+    // 글로우 워시: 마지막에 등장
+    const glowDelay = actualClusters * 0.12 + tendrilCount * 0.15;
+    this.scheduleEffect(glowDelay, () => {
+      const ctx = this.accCtx;
+      ctx.save();
+      for (let g = 0; g < 3; g++) {
+        const gx = W * (0.2 + Math.random() * 0.6);
+        const gy = H * (0.2 + Math.random() * 0.6);
+        const gr = W * (0.2 + Math.random() * 0.15);
+        const hue = bloomHues[Math.floor(Math.random() * bloomHues.length)];
+        const grad = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
+        grad.addColorStop(0, `hsla(${hue}, 100%, 60%, 0.096)`);
+        grad.addColorStop(0.5, `hsla(${hue}, 100%, 50%, 0.032)`);
+        grad.addColorStop(1, `hsla(${hue}, 100%, 40%, 0)`);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+      }
+      ctx.restore();
+      for (let i = 0; i < 3; i++) {
+        const rx = W * (0.2 + Math.random() * 0.6);
+        const ry = H * (0.2 + Math.random() * 0.6);
+        const hue = bloomHues[Math.floor(Math.random() * bloomHues.length)];
+        this.bursts.push({ x: rx, y: ry, hue, sat: 100, light: 60, size: 3, life: 1.2, type: 'ring', vx: 0, vy: 0 });
+      }
+    });
   }
 
   // 🎆 와/대박 — fireworks explosion
@@ -1139,13 +1340,13 @@ export class GenerativeEngine {
       this.bursts.push({ x: cx, y: cy, hue: 35, sat: 100, light: 72, size: 10, life: 1.8, type: 'ring', vx: 0, vy: 0 });
       for (let i = 0; i < emberCount; i++) {
         const angle = Math.random() * Math.PI * 2;
-        const dist = 50 + Math.random() * 150;
+        const dist = 50 + Math.random() * 200;
         const px = cx + Math.cos(angle) * dist;
         const py = cy + Math.sin(angle) * dist;
         this.bursts.push({
-          x: px, y: py, vx: (Math.random() - 0.5) * 0.5, vy: -1 - Math.random() * 2,
-          hue: 30 + Math.random() * 30, sat: 100, light: 65 + Math.random() * 20,
-          size: 2 + Math.random() * 4, life: 1.5 + Math.random(), type: 'shard'
+          x: px, y: py, vx: (Math.random() - 0.5) * 0.4, vy: -0.6 - Math.random() * 1.5,
+          hue: 25 + Math.random() * 35, sat: 100, light: 60 + Math.random() * 25,
+          size: 2 + Math.random() * 5, life: 2.5 + Math.random() * 1.5, type: 'shard'
         });
       }
     });
@@ -1341,6 +1542,13 @@ export class GenerativeEngine {
     this.ctx.fillStyle = '#000';
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     this.activeFlows = []; this.flows = []; this.bursts = [];
+    this.scheduledEffects = [];
     this.cursorX = this.canvas.width / 2; this.cursorY = this.canvas.height / 2;
+    this.lastClapTime = 0; this.lastSnapTime = 0; this.lastLaughTime = 0;
+    this.hasTrailFocus = false;
+    this.trailMinX = Number.POSITIVE_INFINITY;
+    this.trailMinY = Number.POSITIVE_INFINITY;
+    this.trailMaxX = Number.NEGATIVE_INFINITY;
+    this.trailMaxY = Number.NEGATIVE_INFINITY;
   }
 }

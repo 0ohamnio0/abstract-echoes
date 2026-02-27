@@ -2,7 +2,7 @@
 chcp 65001 > nul
 title Abstract Echoes — 전시 서버
 
-cd /d D:\오브레멘\abstract-echoes-main
+cd /d D:\송해민\브레멘백야드\abstract-echoes-main
 
 :: ─────────────────────────────────────────
 :: [1/4] node_modules 확인
@@ -48,12 +48,12 @@ timeout /t 5 /nobreak > nul
 :: ─────────────────────────────────────────
 echo [4/4] Chrome 키오스크 모드로 실행 중...
 
-set CHROME=
+set "CHROME="
 if exist "C:\Program Files\Google\Chrome\Application\chrome.exe" (
-    set CHROME="C:\Program Files\Google\Chrome\Application\chrome.exe"
+    set "CHROME=C:\Program Files\Google\Chrome\Application\chrome.exe"
 )
 if exist "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" (
-    set CHROME="C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+    set "CHROME=C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
 )
 
 if "%CHROME%"=="" (
@@ -63,7 +63,7 @@ if "%CHROME%"=="" (
     exit /b 1
 )
 
-start "" %CHROME% ^
+start "" "%CHROME%" ^
     --kiosk ^
     --app=http://localhost:8080 ^
     --autoplay-policy=no-user-gesture-required ^
@@ -73,7 +73,8 @@ start "" %CHROME% ^
     --disable-session-crashed-bubble ^
     --disable-translate ^
     --no-default-browser-check ^
-    --disable-features=TranslateUI
+    --disable-features=TranslateUI ^
+    --use-fake-ui-for-media-stream
 
 echo.
 echo ════════════════════════════════════════

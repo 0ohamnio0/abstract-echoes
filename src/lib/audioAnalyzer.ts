@@ -102,6 +102,27 @@ export class AudioAnalyzer {
 
   setSensitivity(v: number) { this.sensitivity = v; if (this.gainNode) this.gainNode.gain.value = v * 2; }
   setThreshold(v: number) { this.threshold = v; }
+  setYamnetScoreThreshold(v: number) { this.yamnet.scoreThreshold = v; }
+  setYamnetMaxResults(v: number) { this.yamnet.maxResults = Math.max(1, Math.floor(v)); }
+
+  private classifyHeuristically(volume: number, bass: number, mid: number, treble: number, spectralCentroid: number, spectralFlatness: number): SoundType {
+    const rise = volume - this.prevVolume;
+    const accel = volume - 2 * this.prevVolume + this.prevPrevVolume;
+
+    if ((rise > 0.085 || accel > 0.06) && treble > 0.35 && spectralCentroid > 0.45 && spectralFlatness > 0.42) {
+      return 'snap';
+    }
+
+    if ((rise > 0.06 || accel > 0.045) && (bass + mid) > 0.42 && spectralFlatness > 0.22) {
+      return 'clap';
+    }
+
+    if (mid > 0.2 && treble > 0.2 && spectralCentroid > 0.32 && spectralFlatness < 0.35) {
+      return 'laugh';
+    }
+
+    return 'voice';
+  }
 
   async resumeIfSuspended(): Promise<void> {
     if (this.context && this.context.state === 'suspended') {
@@ -154,13 +175,13 @@ export class AudioAnalyzer {
 
     const isSpeaking = volume > this.threshold;
 
-    // Use YAMNet classification if available, otherwise fallback to 'voice'
+    // Use YAMNet classification if available, otherwise fallback to heuristic classifier
     let soundType: SoundType = 'silence';
     if (isSpeaking) {
       if (this.yamnet.isReady() && this.yamnetSoundType !== 'silence') {
         soundType = this.yamnetSoundType;
       } else {
-        soundType = 'voice';
+        soundType = this.classifyHeuristically(volume, bass, mid, treble, spectralCentroid, spectralFlatness);
       }
     }
 

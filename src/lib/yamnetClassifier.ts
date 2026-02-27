@@ -65,7 +65,7 @@ export class YamnetClassifier {
           modelAssetPath: MODEL_URL,
         },
         maxResults: this.maxResults,
-        scoreThreshold: this.scoreThreshold,
+        scoreThreshold: 0, // client-side filtering via this.scoreThreshold
       });
       this.ready = true;
       console.log('[YAMNet] Model loaded successfully');
@@ -97,6 +97,7 @@ export class YamnetClassifier {
       }
 
       for (const cat of categories) {
+        if (cat.score < this.scoreThreshold) continue; // client-side threshold filtering
         const name = cat.categoryName || '';
         if (RELEVANT_CATEGORIES.has(name)) {
           const mapped = CATEGORY_MAP[name];
