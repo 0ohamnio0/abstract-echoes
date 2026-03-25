@@ -791,7 +791,7 @@ export default function SoundCanvas() {
                 <img
                   src="/oh_bremen.png"
                   alt=""
-                  className="intro-landing-oh block h-auto max-h-[min(42vh,420px)] w-auto max-w-[min(78vw,820px)] object-contain opacity-95"
+                  className="intro-landing-oh block h-auto max-h-[min(32vh,320px)] w-auto max-w-[min(62vw,640px)] object-contain opacity-95"
                   style={{ filter: 'grayscale(1) contrast(1.2) brightness(1.1)' }}
                   aria-hidden
                 />
@@ -828,7 +828,7 @@ export default function SoundCanvas() {
                 <img
                   src="/oh_bremen.png"
                   alt=""
-                  className="intro-oh-fadeout intro-oh-fadeout-pose block h-auto max-h-[min(42vh,420px)] w-auto max-w-[min(78vw,820px)] object-contain pointer-events-none"
+                  className="intro-oh-fadeout intro-oh-fadeout-pose block h-auto max-h-[min(32vh,320px)] w-auto max-w-[min(62vw,640px)] object-contain pointer-events-none"
                   style={{ filter: 'grayscale(1) contrast(1.2) brightness(1.1)' }}
                   aria-hidden
                 />

@@ -58,7 +58,7 @@ export class SpeechTrigger {
     this.recognition = new Ctor();
     this.recognition.lang = 'ko-KR';
     this.recognition.continuous = true;
-    this.recognition.interimResults = false;
+    this.recognition.interimResults = true;
     this.recognition.maxAlternatives = 1;
     this.hadResult = false;
     this.lastStartTime = Date.now();

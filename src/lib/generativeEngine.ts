@@ -113,17 +113,18 @@ export class GenerativeEngine {
       this.framesSinceSpeaking = 0;
       const speedMul = this.params?.voiceCursorSpeed ?? 1;
       const speed = (1.5 + features.volume * 6) * speedMul;
-      // Pitch drives horizontal direction: high pitch → left, low pitch → right
-      const pitchNorm = Math.max(0, Math.min(1, (features.pitch - 80) / 500));
-      const pitchSens = this.params?.voicePitchSensitivity ?? 1.8;
-      const pitchBias = (pitchNorm - 0.5) * -speed * pitchSens;
-      this.cursorX += Math.sin(this.time * 0.43 + this.seedX) * speed * 0.4 + pitchBias;
-      this.cursorY += Math.cos(this.time * 0.37 + this.seedY) * speed + Math.cos(this.time * 0.9 + this.seedY * 2) * speed * 0.3 + Math.sin(this.time * 0.21) * speed * 0.5;
-      const m = 60;
-      if (this.cursorX < m) this.cursorX += (m - this.cursorX) * 0.1;
-      if (this.cursorX > this.canvas.width - m) this.cursorX -= (this.cursorX - (this.canvas.width - m)) * 0.1;
-      if (this.cursorY < m) this.cursorY += (m - this.cursorY) * 0.1;
-      if (this.cursorY > this.canvas.height - m) this.cursorY -= (this.cursorY - (this.canvas.height - m)) * 0.1;
+      // Center-pull: quadratic, stronger at edges
+      const W = this.canvas.width, H = this.canvas.height;
+      const dxN = (W / 2 - this.cursorX) / (W * 0.5);
+      const dyN = (H / 2 - this.cursorY) / (H * 0.5);
+      const pullX = dxN * Math.abs(dxN) * 3.0;
+      const pullY = dyN * Math.abs(dyN) * 3.0;
+
+      this.cursorX += Math.sin(this.time * 0.43 + this.seedX) * speed * 0.5 + pullX;
+      this.cursorY += Math.cos(this.time * 0.37 + this.seedY) * speed * 0.5 + Math.sin(this.time * 0.9 + this.seedY * 2) * speed * 0.3 + pullY;
+      const m = 150;
+      this.cursorX = Math.max(m, Math.min(W - m, this.cursorX));
+      this.cursorY = Math.max(m, Math.min(H - m, this.cursorY));
 
       this.lastSoundType = features.soundType;
 
@@ -162,9 +163,14 @@ export class GenerativeEngine {
   }
 
   private pickVoiceColor(f: AudioFeatures): [number, number, number] {
+    // Original colorful palette
     const idx = Math.abs(Math.floor((f.pitch / 600 * NEON_COLORS.length + this.colorOffset / 25))) % NEON_COLORS.length;
     const [h, s, l] = NEON_COLORS[idx];
-    return [(h + f.pitch * 0.04 + this.colorOffset + this.time * 2) % 360, s, l + f.volume * 10];
+    const baseHue = (h + f.pitch * 0.04 + this.colorOffset + this.time * 2) % 360;
+    // Session dominant hue: blend 40% toward session color
+    const dom = this.colorOffset;
+    const blended = baseHue + ((((dom - baseHue) % 360) + 540) % 360 - 180) * 0.4;
+    return [((blended % 360) + 360) % 360, s, l + f.volume * 10];
   }
 
   // ═══════════════════════════════════════════
@@ -173,29 +179,24 @@ export class GenerativeEngine {
   private onVoice(f: AudioFeatures) {
     const [h, s, l] = this.pickVoiceColor(f);
     const p = this.params;
-    const flowCount = p?.voiceFlowCount ?? 3;
     const lineSizeMul = p?.voiceLineSize ?? 2;
     const stippleProb = p?.voiceStippleProb ?? 0.12;
     const stippleSize = p?.voiceStippleSize ?? 15;
     const nebulaProb = p?.voiceNebulaProb ?? 0.03;
     const spiralProb = p?.voiceSpiralProb ?? 0.008;
 
-    while (this.activeFlows.length < flowCount) {
-      const style: FlowLine['style'] = this.activeFlows.length === 0 ? 'smooth' : this.activeFlows.length === 1 ? 'dotted' : 'smooth';
-      this.activeFlows.push({ points: [], life: 1, style });
+    // Single flow line
+    if (this.activeFlows.length === 0) {
+      this.activeFlows.push({ points: [], life: 1, style: 'smooth' });
     }
-    for (let fi = 0; fi < this.activeFlows.length; fi++) {
-      const flow = this.activeFlows[fi];
-      const oa = (fi / this.activeFlows.length) * Math.PI * 2 + this.time * 0.3;
-      const od = 10 + fi * 15 + f.volume * 30;
-      const px = this.cursorX + Math.cos(oa) * od;
-      const py = this.cursorY + Math.sin(oa) * od;
-      flow.points.push({ x: px, y: py, hue: (h + fi * 40) % 360, sat: s, light: l, size: (1 + f.volume * 6 + f.bass * 4) * lineSizeMul, volume: f.volume });
+    const flow = this.activeFlows[0];
+    const px = this.cursorX;
+    const py = this.cursorY;
+    flow.points.push({ x: px, y: py, hue: h, sat: s, light: l, size: (1 + f.volume * 6 + f.bass * 4) * lineSizeMul, volume: f.volume });
 
-      if (Math.random() < f.volume * stippleProb && fi === 0) this.drawStipple(px + (Math.random() - 0.5) * 40, py + (Math.random() - 0.5) * 40, h, s, l, stippleSize + f.volume * 50, 20 + Math.floor(f.volume * 60));
-      if (Math.random() < spiralProb && fi === 0) this.drawSpiral(px, py, h, s, l, 25 + f.volume * 50);
-      if (Math.random() < f.volume * nebulaProb) this.drawNebula(px + (Math.random() - 0.5) * 60, py + (Math.random() - 0.5) * 60, (h + fi * 40) % 360, s, l, 30 + f.volume * 60);
-    }
+    if (Math.random() < f.volume * stippleProb) this.drawStipple(px + (Math.random() - 0.5) * 40, py + (Math.random() - 0.5) * 40, h, s, l, stippleSize + f.volume * 50, 20 + Math.floor(f.volume * 60));
+    if (Math.random() < spiralProb) this.drawSpiral(px, py, h, s, l, 25 + f.volume * 50);
+    if (Math.random() < f.volume * nebulaProb) this.drawNebula(px + (Math.random() - 0.5) * 60, py + (Math.random() - 0.5) * 60, h, s, l, 30 + f.volume * 60);
   }
 
   // ═══════════════════════════════════════════
