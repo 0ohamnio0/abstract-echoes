@@ -357,20 +357,24 @@ export default function SoundCanvas() {
     // step2: 로고 아래→위 + 흔들림 (2.5s)
     // step3: 동물 버스트 (3.4s, 기존 approach)
     // step4: 정착 (1.4s, 로고+동물 축소 잔존)
-    // 타이밍: step2→3 빠르게, step3/4 여유 있게
-    // 1.0 + 1.4 + 5.0 + 4.5 = 11.9s
+    // 타이밍 (step2/3 통합 stage, beasts가 바운스 끝나기 전 mount+delay로 진입 시작)
+    // stage mount 1000ms. 바운스 1.4s (1000-2400). beasts --delay 1000ms + 180ms 스태거
+    //   → 첫 beast 2000ms, 마지막 beast 2540ms에 approach 시작 (바운스 중 overlap)
+    // bounce-back → static logo 전환 2400ms, beasts 계속 진행
+    // step4(stack) 8200ms, mic 12400ms
     introTimersRef.current.push(window.setTimeout(() => setIntroStep(2), 1000));
     introTimersRef.current.push(window.setTimeout(() => setIntroStep(3), 2400));
-    // 동물 사운드 — 느려진 approach에 맞춰 간격 넓힘
+    // 동물 사운드 — 각 beast의 opacity reveal 지점(approach 19%)에 싱크
+    // beast approach 시작 = 2000 + i*180, 길이 4.8s, reveal at 19% ≈ 0.91s
     INTRO_BEAST_CONFIG.forEach((a, i) => {
-      const t = 2400 + 200 + i * 260;
+      const t = 2000 + i * 180 + 910;
       introTimersRef.current.push(window.setTimeout(() => playBeastAudio(a.src), t));
     });
-    introTimersRef.current.push(window.setTimeout(() => setIntroStep(4), 7400));
+    introTimersRef.current.push(window.setTimeout(() => setIntroStep(4), 8200));
     introTimersRef.current.push(
       window.setTimeout(() => {
         void startMic();
-      }, 11900),
+      }, 12400),
     );
   }, [phase, clearIntroTimers, startMic, playBeastAudio]);
 
@@ -848,30 +852,16 @@ export default function SoundCanvas() {
             </>
           )}
 
-          {/* step 2: giant scale 10에서 바운스로 scale 1로 복귀 */}
-          {introStep === 2 && (
+          {/* step 2+3 통합: 로고 바운스(step2) + 동물 approach(beasts, step2 말미부터 overlap 시작)
+              beasts는 stage mount 시점에서 animation-delay로 약간 지연 — step2 바운스가 끝나기 전에 진입 시작 */}
+          {(introStep === 2 || introStep === 3) && (
             <>
               <div className="absolute inset-0 bg-[#222]" aria-hidden />
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
                   src="/oh_bremen_logo.svg"
                   alt=""
-                  className="intro-bounce-back block h-auto max-h-[min(52vh,520px)] w-auto max-w-[min(74vw,780px)] object-contain"
-                  aria-hidden
-                />
-              </div>
-            </>
-          )}
-
-          {/* step 3: 밖 → 진입 (원본 introApproachBeast, 1.3× 키움) */}
-          {introStep === 3 && (
-            <>
-              <div className="absolute inset-0 bg-[#222]" aria-hidden />
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <img
-                  src="/oh_bremen_logo.svg"
-                  alt=""
-                  className="block h-auto max-h-[min(52vh,520px)] w-auto max-w-[min(74vw,780px)] object-contain"
+                  className={`${introStep === 2 ? 'intro-bounce-back ' : ''}block h-auto max-h-[min(52vh,520px)] w-auto max-w-[min(74vw,780px)] object-contain`}
                   aria-hidden
                 />
               </div>
@@ -885,7 +875,6 @@ export default function SoundCanvas() {
                     {
                       height: `${stackStage.h * a.stackHFrac * 1.15}px`,
                       zIndex: 30,
-                      // 로고와 겹침 회피: fx/fy 1.4× 푸시
                       '--fx': `${a.fx * 1.4}px`,
                       '--fy': `${a.fy * 1.4}px`,
                       '--fr': `${a.fr}deg`,
@@ -894,7 +883,8 @@ export default function SoundCanvas() {
                       '--oy': `${a.oy}px`,
                       '--or': `${a.orDeg}deg`,
                       '--os': String(a.os * 1.15),
-                      '--delay': `${120 + i * 110}ms`,
+                      // stage mount = step2 시작 시점. 바운스 1.4s + 약간의 오버랩을 위해 1000ms 후 approach 시작
+                      '--delay': `${1000 + i * 180}ms`,
                     } as CSSProperties
                   }
                 />
