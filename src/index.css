@@ -82,16 +82,22 @@
   --intro-oh-y: calc(1.5vh + 5px);
 }
 
-/* step1: 거대 OH!BREMEN — 빠르고 매끄럽게 (걸림 없는 ease-out) */
-@keyframes introGiantOh {
-  0%   { opacity: 0; transform: scale(0.5); }
-  20%  { opacity: 1; transform: scale(2.5); }
-  100% { opacity: 1; transform: scale(10); }
+/* step1: 거대 OH!BREMEN — 진짜 한 덩어리의 스케일 애니메이션 (중간 breakpoint 제거),
+   opacity는 분리 트랙으로. 중간 끊김 없음. */
+@keyframes introGiantScale {
+  from { transform: scale(0.4); }
+  to   { transform: scale(10); }
+}
+@keyframes introGiantFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 .intro-giant-oh {
   transform-origin: center center;
   will-change: transform, opacity;
-  animation: introGiantOh 1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation:
+    introGiantFade 0.25s ease-out forwards,
+    introGiantScale 1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 /* step2: giant scale 10에서 바운스로 scale 1로 복귀 (자연스러운 연결) */
