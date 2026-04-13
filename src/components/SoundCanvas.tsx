@@ -824,7 +824,7 @@ export default function SoundCanvas() {
             className="h-[45px] w-auto max-w-[90vw] opacity-90"
             style={{ animation: 'bremenHintFlicker 2.4s infinite linear', transform: 'translateY(-40px)' }}
           />
-          <img src="/by_oh_bremen_logo.svg" alt="" className="h-[55px] w-auto max-w-[90vw] opacity-90" />
+          <img src="/oh_bremen_logo.svg" alt="" className="h-[55px] w-auto max-w-[90vw] opacity-90" />
         </div>
       )}
 
@@ -836,7 +836,7 @@ export default function SoundCanvas() {
               <div className="absolute inset-0 bg-[#222]" aria-hidden />
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
-                  src="/by_oh_bremen_logo.svg"
+                  src="/oh_bremen_logo.svg"
                   alt=""
                   className="intro-giant-oh block h-auto w-auto max-h-[60vh] max-w-[80vw] object-contain"
                   style={{ filter: 'grayscale(1) contrast(1.2) brightness(1.15)' }}
@@ -852,7 +852,7 @@ export default function SoundCanvas() {
               <div className="absolute inset-0 bg-[#222]" aria-hidden />
               <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
-                  src="/by_oh_bremen_logo.svg"
+                  src="/oh_bremen_logo.svg"
                   alt=""
                   className="intro-rise-shake block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain"
                   style={{ filter: 'grayscale(1) contrast(1.2) brightness(1.1)' }}
@@ -868,7 +868,7 @@ export default function SoundCanvas() {
               <div className="absolute inset-0 bg-[#222]/95" aria-hidden />
               <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
-                  src="/by_oh_bremen_logo.svg"
+                  src="/oh_bremen_logo.svg"
                   alt=""
                   className="intro-oh-fadeout-pose block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain pointer-events-none"
                   style={{ filter: 'grayscale(1) contrast(1.2) brightness(1.1)', opacity: 0.95 }}
@@ -907,7 +907,7 @@ export default function SoundCanvas() {
               <div className="absolute inset-0 bg-[#222]/90" aria-hidden />
               <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
-                  src="/by_oh_bremen_logo.svg"
+                  src="/oh_bremen_logo.svg"
                   alt=""
                   className="intro-logo-settle block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain"
                   aria-hidden
