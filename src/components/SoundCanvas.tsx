@@ -357,19 +357,21 @@ export default function SoundCanvas() {
     // step2: 로고 아래→위 + 흔들림 (2.5s)
     // step3: 동물 버스트 (3.4s, 기존 approach)
     // step4: 정착 (1.4s, 로고+동물 축소 잔존)
-    // 새 타이밍 (step3/4 늘림): 1.6 + 2.5 + 5.0 + 3.5 = 12.6s
+    // 타이밍 (step4 = 밖→진입 / step5 = 스톱모션 스택)
+    // 1.6 + 2.5 + 4.0 + 3.4 + 3.2 = 14.7s
     introTimersRef.current.push(window.setTimeout(() => setIntroStep(2), 1600));
     introTimersRef.current.push(window.setTimeout(() => setIntroStep(3), 4100));
-    // 동물 사운드 — burst가 외곽으로 나갈 때(13~32% 구간) 발화. step3 시작 + ~700ms부터
+    // 동물 사운드 — step3 burst 외곽 분출 구간
     INTRO_BEAST_CONFIG.forEach((a, i) => {
       const t = 4100 + 700 + i * 180;
       introTimersRef.current.push(window.setTimeout(() => playBeastAudio(a.src), t));
     });
-    introTimersRef.current.push(window.setTimeout(() => setIntroStep(4), 9100));
+    introTimersRef.current.push(window.setTimeout(() => setIntroStep(4), 8100));  // approach
+    introTimersRef.current.push(window.setTimeout(() => setIntroStep(5), 11500)); // stack
     introTimersRef.current.push(
       window.setTimeout(() => {
         void startMic();
-      }, 12600),
+      }, 14700),
     );
   }, [phase, clearIntroTimers, startMic, playBeastAudio]);
 
@@ -914,9 +916,46 @@ export default function SoundCanvas() {
             </>
           )}
 
-          {/* step 4: 정착 — 로고 잔존(밑에 깔림) + 4 beast 모두 stackCx/Cy 위치로 정렬
-              기존 intro-stack-beast 키프레임 부활. 시작점은 step3 클러스터(중심)에서 매끈히 이어짐. */}
+          {/* step 4: 밖 → 진입 (원본 introApproachBeast 부활) */}
           {introStep === 4 && (
+            <>
+              <div className="absolute inset-0 bg-[#222]" aria-hidden />
+              <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
+                <img
+                  src="/oh_bremen_logo.svg"
+                  alt=""
+                  className="block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain"
+                  aria-hidden
+                />
+              </div>
+              {INTRO_BEAST_CONFIG.map((a, i) => (
+                <img
+                  key={`approach-${a.src}`}
+                  src={a.src}
+                  alt=""
+                  className="intro-approach-beast absolute left-1/2 top-1/2 object-contain object-center opacity-100 w-auto max-w-[min(96vw,900px)]"
+                  style={
+                    {
+                      height: `${stackStage.h * a.stackHFrac}px`,
+                      zIndex: 30,
+                      '--fx': `${a.fx}px`,
+                      '--fy': `${a.fy}px`,
+                      '--fr': `${a.fr}deg`,
+                      '--fs': String(a.fs),
+                      '--ox': `${a.ox}px`,
+                      '--oy': `${a.oy}px`,
+                      '--or': `${a.orDeg}deg`,
+                      '--os': String(a.os),
+                      '--delay': `${120 + i * 110}ms`,
+                    } as CSSProperties
+                  }
+                />
+              ))}
+            </>
+          )}
+
+          {/* step 5: 스톱모션 스택 (원본 introStackBeast) + 로고 정착 */}
+          {introStep === 5 && (
             <>
               <div className="absolute inset-0 bg-[#222]" aria-hidden />
               <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -941,12 +980,10 @@ export default function SoundCanvas() {
                         {
                           height: `${stackStage.h * a.stackHFrac}px`,
                           zIndex: 30,
-                          // 시작 좌표 = step3 클러스터 끝(중심, scale 0.7) → 매끈한 연결
-                          '--fx': '0px',
-                          '--fy': '0px',
-                          '--fr': '0deg',
-                          '--fs': '0.7',
-                          // 최종 stack 좌표
+                          '--fx': `${a.fx}px`,
+                          '--fy': `${a.fy}px`,
+                          '--fr': `${a.fr}deg`,
+                          '--fs': String(a.fs),
                           '--sx': `${sx}px`,
                           '--sy': `${sy}px`,
                           '--sr': `${a.sr}deg`,

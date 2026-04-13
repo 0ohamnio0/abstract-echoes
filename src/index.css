@@ -133,7 +133,7 @@
 .intro-beast-burst {
   opacity: 0;
   transform-origin: center center;
-  animation: introBeastBurst 5s cubic-bezier(0.5, 0, 0.3, 1) forwards;
+  animation: introBeastBurst 4s cubic-bezier(0.5, 0, 0.3, 1) forwards;
   animation-delay: var(--delay, 0ms);
 }
 
