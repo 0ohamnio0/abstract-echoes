@@ -883,17 +883,17 @@ export default function SoundCanvas() {
                   className="intro-approach-beast absolute left-1/2 top-1/2 object-contain object-center opacity-100 w-auto max-w-[min(96vw,900px)]"
                   style={
                     {
-                      height: `${stackStage.h * a.stackHFrac * 0.9}px`,
+                      height: `${stackStage.h * a.stackHFrac * 1.15}px`,
                       zIndex: 30,
                       // 로고와 겹침 회피: fx/fy 1.4× 푸시
                       '--fx': `${a.fx * 1.4}px`,
                       '--fy': `${a.fy * 1.4}px`,
                       '--fr': `${a.fr}deg`,
-                      '--fs': String(a.fs * 0.9),
+                      '--fs': String(a.fs * 1.15),
                       '--ox': `${a.ox}px`,
                       '--oy': `${a.oy}px`,
                       '--or': `${a.orDeg}deg`,
-                      '--os': String(a.os * 0.9),
+                      '--os': String(a.os * 1.15),
                       '--delay': `${120 + i * 110}ms`,
                     } as CSSProperties
                   }
@@ -926,13 +926,13 @@ export default function SoundCanvas() {
                       className="intro-stack-beast absolute left-1/2 top-1/2 object-contain object-center opacity-100 w-auto max-w-[min(96vw,900px)]"
                       style={
                         {
-                          height: `${stackStage.h * a.stackHFrac * 0.9}px`,
+                          height: `${stackStage.h * a.stackHFrac * 1.15}px`,
                           zIndex: 30,
                           // step3 끝(0.9× scale, 1.4× 푸시 위치) → stack 진행하며 원본 1.0×로 축소
                           '--fx': `${a.fx * 1.4}px`,
                           '--fy': `${a.fy * 1.4}px`,
                           '--fr': `${a.fr}deg`,
-                          '--fs': String(a.fs * 0.9),
+                          '--fs': String(a.fs * 1.15),
                           '--sx': `${sx}px`,
                           '--sy': `${sy}px`,
                           '--sr': `${a.sr}deg`,
