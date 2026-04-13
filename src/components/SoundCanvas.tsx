@@ -357,20 +357,20 @@ export default function SoundCanvas() {
     // step2: 로고 아래→위 + 흔들림 (2.5s)
     // step3: 동물 버스트 (3.4s, 기존 approach)
     // step4: 정착 (1.4s, 로고+동물 축소 잔존)
-    // 새 시퀀스: giant(빠르게) → bounce-back → approach → stack
-    // 1.0 + 2.2 + 3.5 + 3.2 = 9.9s
+    // 타이밍: step2→3 빠르게, step3/4 여유 있게
+    // 1.0 + 1.4 + 5.0 + 4.5 = 11.9s
     introTimersRef.current.push(window.setTimeout(() => setIntroStep(2), 1000));
-    introTimersRef.current.push(window.setTimeout(() => setIntroStep(3), 3200));
-    // 동물 사운드 — approach 진입 타이밍과 동기
+    introTimersRef.current.push(window.setTimeout(() => setIntroStep(3), 2400));
+    // 동물 사운드 — 느려진 approach에 맞춰 간격 넓힘
     INTRO_BEAST_CONFIG.forEach((a, i) => {
-      const t = 3200 + 120 + i * 180;
+      const t = 2400 + 200 + i * 260;
       introTimersRef.current.push(window.setTimeout(() => playBeastAudio(a.src), t));
     });
-    introTimersRef.current.push(window.setTimeout(() => setIntroStep(4), 6700)); // stack
+    introTimersRef.current.push(window.setTimeout(() => setIntroStep(4), 7400));
     introTimersRef.current.push(
       window.setTimeout(() => {
         void startMic();
-      }, 9900),
+      }, 11900),
     );
   }, [phase, clearIntroTimers, startMic, playBeastAudio]);
 

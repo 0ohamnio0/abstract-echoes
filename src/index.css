@@ -112,7 +112,7 @@
 .intro-bounce-back {
   transform-origin: center center;
   will-change: transform, opacity;
-  animation: introBounceBack 2.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: introBounceBack 1.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* step3: burst → retract → fly L-R → cluster (260407 spec)
@@ -147,7 +147,7 @@
 .intro-logo-settle {
   transform-origin: center center;
   will-change: transform, opacity;
-  animation: introLogoSettle 3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: introLogoSettle 4.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
 @keyframes introBeastSettle {
@@ -214,7 +214,7 @@
   opacity: 0;
   transform: translate(-50%, -50%) translate(var(--ox), var(--oy)) rotate(var(--fr)) scale(var(--fs));
   transform-origin: center center;
-  animation: introApproachBeast 3.38s linear forwards;
+  animation: introApproachBeast 4.8s linear forwards;
   animation-delay: var(--delay, 0ms);
 }
 @keyframes introApproachBeast {
@@ -267,7 +267,7 @@
   opacity: 1;
   transform: translate(-50%, -50%) translate(var(--fx), var(--fy)) rotate(var(--fr)) scale(var(--fs));
   transform-origin: center center;
-  animation: introStackBeast 3.15s linear forwards;
+  animation: introStackBeast 4.3s linear forwards;
   animation-delay: var(--delay, 0ms);
 }
 @keyframes introStackBeast {
