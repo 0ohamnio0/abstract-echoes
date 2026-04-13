@@ -871,31 +871,38 @@ export default function SoundCanvas() {
                   aria-hidden
                 />
               </div>
-              {INTRO_BEAST_CONFIG.map((a, i) => (
-                <img
-                  key={`approach-${a.src}`}
-                  src={a.src}
-                  alt=""
-                  className="intro-approach-beast absolute left-1/2 top-1/2 object-contain object-center opacity-100 w-auto max-w-[min(96vw,900px)]"
-                  style={
-                    {
-                      height: `${stackStage.h * a.stackHFrac * 1.15}px`,
-                      zIndex: 30,
-                      '--fx': `${a.fx * 1.4}px`,
-                      '--fy': `${a.fy * 1.4}px`,
-                      '--fr': `${a.fr}deg`,
-                      '--fs': String(a.fs * 1.15),
-                      // ox/oy 0.4× 축소 — 화면 바로 바깥에서 시작, 바운스 중 화면 진입 가능
-                      '--ox': `${a.ox * 0.4}px`,
-                      '--oy': `${a.oy * 0.4}px`,
-                      '--or': `${a.orDeg}deg`,
-                      '--os': String(a.os * 1.15),
-                      // stage mount(step2 시작) + 200ms에 approach 시작 → 바운스(~1400ms)와 충분히 겹침
-                      '--delay': `${200 + i * 180}ms`,
-                    } as CSSProperties
-                  }
-                />
-              ))}
+              {INTRO_BEAST_CONFIG.map((a, i) => {
+                // 로고 감쌀 때 4마리 상/하 · 좌/우 대칭 배치 (원본 fy/fx는 비대칭)
+                const isTop = a.fy < 0;
+                const isLeft = a.fx < 0;
+                const SYM_X = 460; // 좌우 거리
+                const SYM_Y = 200; // 상하 거리
+                const symFx = isLeft ? -SYM_X : SYM_X;
+                const symFy = isTop ? -SYM_Y : SYM_Y;
+                return (
+                  <img
+                    key={`approach-${a.src}`}
+                    src={a.src}
+                    alt=""
+                    className="intro-approach-beast absolute left-1/2 top-1/2 object-contain object-center opacity-100 w-auto max-w-[min(96vw,900px)]"
+                    style={
+                      {
+                        height: `${stackStage.h * a.stackHFrac * 1.15}px`,
+                        zIndex: 30,
+                        '--fx': `${symFx * 1.4}px`,
+                        '--fy': `${symFy * 1.4}px`,
+                        '--fr': `${a.fr}deg`,
+                        '--fs': String(a.fs * 1.15),
+                        '--ox': `${a.ox * 0.4}px`,
+                        '--oy': `${a.oy * 0.4}px`,
+                        '--or': `${a.orDeg}deg`,
+                        '--os': String(a.os * 1.15),
+                        '--delay': `${200 + i * 180}ms`,
+                      } as CSSProperties
+                    }
+                  />
+                );
+              })}
             </>
           )}
 
@@ -915,6 +922,12 @@ export default function SoundCanvas() {
                 .sort((x, y) => y.stackCy - x.stackCy)
                 .map(a => {
                   const { sx, sy } = stackOffsetPx(a.stackCx, a.stackCy, stackStage);
+                  // step3 대칭 좌표와 일치 (점프 방지)
+                  const isTop = a.fy < 0;
+                  const isLeft = a.fx < 0;
+                  const SYM_X = 460, SYM_Y = 200;
+                  const symFx = (isLeft ? -SYM_X : SYM_X) * 1.4;
+                  const symFy = (isTop ? -SYM_Y : SYM_Y) * 1.4;
                   return (
                     <img
                       key={`stack-${a.src}`}
@@ -925,9 +938,8 @@ export default function SoundCanvas() {
                         {
                           height: `${stackStage.h * a.stackHFrac * 1.15}px`,
                           zIndex: 30,
-                          // step3 끝(0.9× scale, 1.4× 푸시 위치) → stack 진행하며 원본 1.0×로 축소
-                          '--fx': `${a.fx * 1.4}px`,
-                          '--fy': `${a.fy * 1.4}px`,
+                          '--fx': `${symFx}px`,
+                          '--fy': `${symFy}px`,
                           '--fr': `${a.fr}deg`,
                           '--fs': String(a.fs * 1.15),
                           '--sx': `${sx}px`,
