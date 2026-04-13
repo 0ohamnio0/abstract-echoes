@@ -82,12 +82,12 @@
   --intro-oh-y: calc(1.5vh + 5px);
 }
 
-/* step1: 거대 OH!BREMEN 크롭인 — 화면 밖으로 잘려나갈 정도로 커진 뒤 페이드 */
+/* step1: 거대 OH!BREMEN — "화면 밖으로 잘려나가도록 더 크게" 명시 요청 반영, 9~10x */
 @keyframes introGiantOh {
-  0%   { opacity: 0; transform: scale(0.4); }
-  18%  { opacity: 1; transform: scale(5.6); }
-  72%  { opacity: 1; transform: scale(6.2); }
-  100% { opacity: 0; transform: scale(6.4); }
+  0%   { opacity: 0; transform: scale(0.5); }
+  20%  { opacity: 1; transform: scale(8); }
+  75%  { opacity: 1; transform: scale(10); }
+  100% { opacity: 0; transform: scale(10.5); }
 }
 .intro-giant-oh {
   transform-origin: center center;
@@ -111,6 +111,30 @@
   transform-origin: center center;
   will-change: transform, opacity;
   animation: introRiseShake 2.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* step3: burst → retract → fly L-R → cluster (260407 spec)
+   변수: --bx/--by 외곽 폭발 위치, --lr 좌우 비행 X 진폭, --cx/--cy 최종 클러스터 좌표 */
+@keyframes introBeastBurst {
+  /* 0~12% : 로고 중앙 뒤에서 작게 등장 */
+  0%   { opacity: 0; transform: translate(-50%, -50%) translate(0, 0) scale(0.2); }
+  12%  { opacity: 1; transform: translate(-50%, -50%) translate(0, 0) scale(0.6); }
+  /* 13~32% : 외곽으로 뿜어져 나옴 */
+  32%  { opacity: 1; transform: translate(-50%, -50%) translate(var(--bx), var(--by)) scale(1.2) rotate(var(--fr)); }
+  /* 33~48% : 다시 중심 안쪽으로 수축 */
+  48%  { opacity: 1; transform: translate(-50%, -50%) translate(calc(var(--bx) * 0.18), calc(var(--by) * 0.18)) scale(0.8) rotate(0deg); }
+  /* 49~78% : 좌우로 날아다님 (lr 진폭) — 두 번 흔들 */
+  56%  { opacity: 1; transform: translate(-50%, -50%) translate(calc(var(--lr) * -1), -10vh) scale(1) rotate(var(--fr)); }
+  64%  { opacity: 1; transform: translate(-50%, -50%) translate(var(--lr), 8vh) scale(1) rotate(calc(var(--fr) * -1)); }
+  72%  { opacity: 1; transform: translate(-50%, -50%) translate(calc(var(--lr) * -0.6), 4vh) scale(1) rotate(var(--fr)); }
+  /* 79~100% : 한 점(cluster)으로 모임 */
+  100% { opacity: 1; transform: translate(-50%, -50%) translate(var(--cx), var(--cy)) scale(0.7) rotate(0deg); }
+}
+.intro-beast-burst {
+  opacity: 0;
+  transform-origin: center center;
+  animation: introBeastBurst 3.4s cubic-bezier(0.5, 0, 0.3, 1) forwards;
+  animation-delay: var(--delay, 0ms);
 }
 
 /* step4 정착: 로고가 작아지며 화면 하단으로 (잔존), 동물 요소들은 가로선 형태로 정렬 */

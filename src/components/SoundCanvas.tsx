@@ -862,42 +862,54 @@ export default function SoundCanvas() {
             </>
           )}
 
-          {/* step 3: 동물 요소 버스트 (로고 뒤에서 분출), 로고는 잔존 */}
+          {/* step 3: 4-phase 버스트 (260407 spec)
+              로고 뒤 → 외곽 폭발 → 안쪽 수축 → 좌우 비행 → 클러스터 */}
           {introStep === 3 && (
             <>
-              <div className="absolute inset-0 bg-[#222]/95" aria-hidden />
+              <div className="absolute inset-0 bg-[#222]" aria-hidden />
               <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
                   src="/oh_bremen_logo.svg"
                   alt=""
-                  className="intro-oh-fadeout-pose block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain pointer-events-none"
-                  style={{ filter: 'grayscale(1) contrast(1.2) brightness(1.1)', opacity: 0.95 }}
+                  className="block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain"
                   aria-hidden
                 />
               </div>
-              {INTRO_BEAST_CONFIG.map((a, i) => (
-                <img
-                  key={a.src}
-                  src={a.src}
-                  alt=""
-                  className="intro-approach-beast absolute left-1/2 top-1/2 object-contain object-center opacity-100 w-auto max-w-[min(96vw,900px)]"
-                  style={
-                    {
-                      height: `${stackStage.h * a.stackHFrac}px`,
-                      filter: 'grayscale(1) contrast(1.2) brightness(1.12)',
-                      '--fx': `${a.fx}px`,
-                      '--fy': `${a.fy}px`,
-                      '--fr': `${a.fr}deg`,
-                      '--fs': String(a.fs),
-                      '--ox': `${a.ox}px`,
-                      '--oy': `${a.oy}px`,
-                      '--or': `${a.orDeg}deg`,
-                      '--os': String(a.os),
-                      '--delay': `${120 + i * 110}ms`,
-                    } as CSSProperties
-                  }
-                />
-              ))}
+              {INTRO_BEAST_CONFIG.map((a, i) => {
+                // 4-phase 버스트 변수 (per-beast 방향 분산)
+                // bx/by: 외곽 폭발 도착 위치 (4분면으로 분산)
+                // lr: 좌우 비행 X 진폭 (홀짝 부호)
+                // cx/cy: 최종 클러스터 좌표 (모두 같은 점으로 → "하나로 뭉쳐짐")
+                const angles = [-Math.PI * 0.7, -Math.PI * 0.3, Math.PI * 0.3, Math.PI * 0.7];
+                const ang = angles[i % 4];
+                const burstR = 38; // vh 단위로 외곽 분출 반경
+                const bx = `${(Math.cos(ang) * burstR).toFixed(1)}vw`;
+                const by = `${(Math.sin(ang) * burstR).toFixed(1)}vh`;
+                const lr = `${i % 2 === 0 ? 30 : -30}vw`;
+                const cx = '0vw';
+                const cy = '0vh';
+                return (
+                  <img
+                    key={a.src}
+                    src={a.src}
+                    alt=""
+                    className="intro-beast-burst absolute left-1/2 top-1/2 object-contain object-center w-auto max-w-[min(96vw,900px)]"
+                    style={
+                      {
+                        height: `${stackStage.h * a.stackHFrac}px`,
+                        zIndex: 30,
+                        '--fr': `${a.fr}deg`,
+                        '--bx': bx,
+                        '--by': by,
+                        '--lr': lr,
+                        '--cx': cx,
+                        '--cy': cy,
+                        '--delay': `${i * 80}ms`,
+                      } as CSSProperties
+                    }
+                  />
+                );
+              })}
             </>
           )}
 
