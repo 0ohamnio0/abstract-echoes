@@ -10,24 +10,38 @@
 import type { AudioFeatures } from './audioAnalyzer';
 import type { TriggerWord } from './speechTrigger';
 
-// ── 피치 5-band (저음 blue → 고음 red) ────────────────────────────
+// ── 피치 컬러 팔레트 ─────────────────────────────────────────────
+// 기본(아동/일반): 5-band 비비드 (저음 blue → 고음 red)
+// 성인 모드: 4-key 톤다운 — 디프 블루 / 모브 / 머스타드 / 버건디
 interface ColorStop { pitch: number; h: number; s: number; l: number; }
-const PITCH_STOPS: ColorStop[] = [
-  { pitch:  80, h: 220, s: 90, l: 55 }, // 저음  파랑
-  { pitch: 180, h: 180, s: 85, l: 50 }, // 중저  청록
-  { pitch: 280, h:  80, s: 80, l: 55 }, // 중    연녹
-  { pitch: 400, h:  25, s: 95, l: 55 }, // 중고  주황
-  { pitch: 600, h:   0, s: 90, l: 55 }, // 고음  빨강
-];
 
-function pitchToHsl(pitch: number): [number, number, number] {
-  if (pitch <= PITCH_STOPS[0].pitch) {
-    const s = PITCH_STOPS[0]; return [s.h, s.s, s.l];
+export type PalettePreset = 'default' | 'adult';
+
+const PALETTES: Record<PalettePreset, ColorStop[]> = {
+  default: [
+    { pitch:  80, h: 220, s: 90, l: 55 }, // 저  파랑
+    { pitch: 180, h: 180, s: 85, l: 50 }, // 중저 청록
+    { pitch: 280, h:  80, s: 80, l: 55 }, // 중  연녹
+    { pitch: 400, h:  25, s: 95, l: 55 }, // 중고 주황
+    { pitch: 600, h:   0, s: 90, l: 55 }, // 고  빨강
+  ],
+  adult: [
+    { pitch: 100, h: 215, s: 55, l: 42 }, // 저  딥 블루
+    { pitch: 220, h: 280, s: 35, l: 50 }, // 중저 모브
+    { pitch: 360, h:  40, s: 60, l: 50 }, // 중고 머스타드
+    { pitch: 550, h: 350, s: 55, l: 42 }, // 고  버건디
+  ],
+};
+
+function pitchToHsl(pitch: number, preset: PalettePreset = 'default'): [number, number, number] {
+  const stops = PALETTES[preset];
+  if (pitch <= stops[0].pitch) {
+    const s = stops[0]; return [s.h, s.s, s.l];
   }
-  const last = PITCH_STOPS[PITCH_STOPS.length - 1];
+  const last = stops[stops.length - 1];
   if (pitch >= last.pitch) return [last.h, last.s, last.l];
-  for (let i = 0; i < PITCH_STOPS.length - 1; i++) {
-    const a = PITCH_STOPS[i], b = PITCH_STOPS[i + 1];
+  for (let i = 0; i < stops.length - 1; i++) {
+    const a = stops[i], b = stops[i + 1];
     if (pitch >= a.pitch && pitch < b.pitch) {
       const t = (pitch - a.pitch) / (b.pitch - a.pitch);
       // hue 최단 경로 보간
@@ -47,9 +61,23 @@ class SessionColorTracker {
   private lastVoiceTime = -Infinity;
   private currentHsl: [number, number, number] | null = null;
   private sessionGapMs: number;
+  private preset: PalettePreset = 'default';
 
   constructor(gapMs = 2000) { this.sessionGapMs = gapMs; }
   setGapMs(ms: number) { this.sessionGapMs = ms; }
+  setPreset(p: PalettePreset) {
+    if (this.preset !== p) {
+      this.preset = p;
+      // 활성 세션이 있다면 즉시 새 팔레트로 갱신
+      if (this.pitchSamples.length > 0) {
+        const sorted = [...this.pitchSamples].sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        this.currentHsl = pitchToHsl(median, p);
+      } else {
+        this.currentHsl = null;
+      }
+    }
+  }
 
   feed(f: AudioFeatures, now: number) {
     if (!f.isSpeaking || f.pitch < 60 || f.pitch > 800) return;
@@ -65,9 +93,9 @@ class SessionColorTracker {
     if (this.pitchSamples.length >= 6 && !this.currentHsl) {
       const sorted = [...this.pitchSamples].sort((a, b) => a - b);
       const median = sorted[Math.floor(sorted.length / 2)];
-      this.currentHsl = pitchToHsl(median);
+      this.currentHsl = pitchToHsl(median, this.preset);
     } else if (!this.currentHsl) {
-      this.currentHsl = pitchToHsl(f.pitch);
+      this.currentHsl = pitchToHsl(f.pitch, this.preset);
     }
   }
 
@@ -146,6 +174,7 @@ export class GenerativeEngine {
 
   // ── 외부 API (SoundCanvas.tsx가 호출) ─────────────────────────
   setIdleMode(on: boolean) { this.idle = on; }
+  setPalette(p: PalettePreset) { this.session.setPreset(p); }
 
   update(f: AudioFeatures) {
     this.time += 1 / 60;

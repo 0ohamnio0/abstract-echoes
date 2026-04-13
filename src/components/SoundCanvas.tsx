@@ -2,7 +2,7 @@ import { useRef, useEffect, useLayoutEffect, useState, useCallback, type CSSProp
 import { createNoise3D } from 'simplex-noise';
 import { QRCodeSVG } from 'qrcode.react';
 import { AudioAnalyzer, SoundType } from '@/lib/audioAnalyzer';
-import { GenerativeEngine } from '@/lib/generativeEngine';
+import { GenerativeEngine, type PalettePreset } from '@/lib/generativeEngine';
 import { createDefaultParams, extractValues, TuningParams, ParamDef } from '@/lib/tuningParams';
 import { SpeechTrigger, TriggerWord } from '@/lib/speechTrigger';
 import TuningPanel from './TuningPanel';
@@ -181,6 +181,9 @@ export default function SoundCanvas() {
   const [showTuning, setShowTuning] = useState(false);
   const [isKioskMode, setIsKioskMode] = useState(false);
   const [modeIndicator, setModeIndicator] = useState(false);
+  const [palette, setPalette] = useState<PalettePreset>('default');
+  const [paletteIndicator, setPaletteIndicator] = useState<string | null>(null);
+  const paletteIndicatorTimerRef = useRef<number>(0);
   const [tuningParams, setTuningParams] = useState<TuningParams>(loadParams);
   const [triggerDisplay, setTriggerDisplay] = useState<{ word: TriggerWord; text: string } | null>(null);
   const triggerTimerRef = useRef<number>(0);
@@ -258,6 +261,7 @@ export default function SoundCanvas() {
       const engine = new GenerativeEngine(canvasRef.current);
       engine.params = extractValues(tuningParams);
       engine.setIdleMode(false);
+      engine.setPalette(palette);
       engineRef.current = engine;
 
       const speech = new SpeechTrigger(event => {
@@ -429,6 +433,20 @@ export default function SoundCanvas() {
         if ((e.target as HTMLElement).tagName === 'INPUT') return;
         e.preventDefault();
         if (phase === 'listening') stopMic();
+        return;
+      }
+      // M key: toggle palette (default ⇄ adult)
+      if (e.code === 'KeyM' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+        if ((e.target as HTMLElement).tagName === 'INPUT') return;
+        e.preventDefault();
+        setPalette(prev => {
+          const next: PalettePreset = prev === 'default' ? 'adult' : 'default';
+          engineRef.current?.setPalette(next);
+          setPaletteIndicator(next === 'adult' ? 'ADULT (4-key)' : 'DEFAULT (5-band)');
+          clearTimeout(paletteIndicatorTimerRef.current);
+          paletteIndicatorTimerRef.current = window.setTimeout(() => setPaletteIndicator(null), 1800);
+          return next;
+        });
         return;
       }
       // Q key: toggle debug UI
@@ -896,6 +914,12 @@ export default function SoundCanvas() {
       {showDebugUI && modeIndicator && (
         <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 px-5 py-2 bg-card/80 backdrop-blur border border-border rounded-full text-xs tracking-widest uppercase text-muted-foreground animate-in fade-in duration-200">
           {isKioskMode ? '🖥 전시 모드' : '⚙ 세팅 모드'}
+        </div>
+      )}
+
+      {paletteIndicator && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-2 bg-card/80 backdrop-blur border border-border rounded-full text-xs tracking-widest uppercase text-muted-foreground animate-in fade-in duration-200">
+          🎨 {paletteIndicator}
         </div>
       )}
 
