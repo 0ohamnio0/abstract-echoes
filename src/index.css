@@ -133,7 +133,7 @@
 .intro-beast-burst {
   opacity: 0;
   transform-origin: center center;
-  animation: introBeastBurst 3.4s cubic-bezier(0.5, 0, 0.3, 1) forwards;
+  animation: introBeastBurst 5s cubic-bezier(0.5, 0, 0.3, 1) forwards;
   animation-delay: var(--delay, 0ms);
 }
 
@@ -145,7 +145,7 @@
 .intro-logo-settle {
   transform-origin: center center;
   will-change: transform, opacity;
-  animation: introLogoSettle 1.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: introLogoSettle 3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
 @keyframes introBeastSettle {

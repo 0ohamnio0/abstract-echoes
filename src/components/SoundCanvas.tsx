@@ -357,18 +357,19 @@ export default function SoundCanvas() {
     // step2: 로고 아래→위 + 흔들림 (2.5s)
     // step3: 동물 버스트 (3.4s, 기존 approach)
     // step4: 정착 (1.4s, 로고+동물 축소 잔존)
+    // 새 타이밍 (step3/4 늘림): 1.6 + 2.5 + 5.0 + 3.5 = 12.6s
     introTimersRef.current.push(window.setTimeout(() => setIntroStep(2), 1600));
     introTimersRef.current.push(window.setTimeout(() => setIntroStep(3), 4100));
-    // 동물 버스트 사운드 — 각 SVG의 화면 진입 delay와 동일 타이밍
+    // 동물 사운드 — burst가 외곽으로 나갈 때(13~32% 구간) 발화. step3 시작 + ~700ms부터
     INTRO_BEAST_CONFIG.forEach((a, i) => {
-      const t = 4100 + 120 + i * 110;
+      const t = 4100 + 700 + i * 180;
       introTimersRef.current.push(window.setTimeout(() => playBeastAudio(a.src), t));
     });
-    introTimersRef.current.push(window.setTimeout(() => setIntroStep(4), 7500));
+    introTimersRef.current.push(window.setTimeout(() => setIntroStep(4), 9100));
     introTimersRef.current.push(
       window.setTimeout(() => {
         void startMic();
-      }, 8900),
+      }, 12600),
     );
   }, [phase, clearIntroTimers, startMic, playBeastAudio]);
 
@@ -913,10 +914,11 @@ export default function SoundCanvas() {
             </>
           )}
 
-          {/* step 4: 정착 — 로고 작아져 잔존 + 불꽃(stack-2) + 가로선(stack-4) 2개만 */}
+          {/* step 4: 정착 — 로고 잔존(밑에 깔림) + 4 beast 모두 stackCx/Cy 위치로 정렬
+              기존 intro-stack-beast 키프레임 부활. 시작점은 step3 클러스터(중심)에서 매끈히 이어짐. */}
           {introStep === 4 && (
             <>
-              <div className="absolute inset-0 bg-[#222]/90" aria-hidden />
+              <div className="absolute inset-0 bg-[#222]" aria-hidden />
               <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
                   src="/oh_bremen_logo.svg"
@@ -925,29 +927,36 @@ export default function SoundCanvas() {
                   aria-hidden
                 />
               </div>
-              {INTRO_BEAST_CONFIG.filter(a => a.src === '/intro-stack-2.svg' || a.src === '/intro-stack-4.svg').map((a, i) => {
-                // 두 잔존 요소: 불꽃(stack-2)은 좌측, 가로선(stack-4)은 우측
-                const lx = a.src === '/intro-stack-2.svg' ? -90 : 40;
-                return (
-                  <img
-                    key={`settle-${a.src}`}
-                    src={a.src}
-                    alt=""
-                    className="intro-beast-settle absolute left-1/2 top-1/2 object-contain object-center w-auto max-w-[min(96vw,900px)]"
-                    style={
-                      {
-                        height: `${stackStage.h * a.stackHFrac}px`,
-                        '--fx': `${a.fx}px`,
-                        '--fy': `${a.fy}px`,
-                        '--fr': `${a.fr}deg`,
-                        '--fs': String(a.fs),
-                        '--lx': `${lx}px`,
-                        '--delay': `${i * 60}ms`,
-                      } as CSSProperties
-                    }
-                  />
-                );
-              })}
+              {[...INTRO_BEAST_CONFIG]
+                .sort((x, y) => y.stackCy - x.stackCy)
+                .map(a => {
+                  const { sx, sy } = stackOffsetPx(a.stackCx, a.stackCy, stackStage);
+                  return (
+                    <img
+                      key={`stack-${a.src}`}
+                      src={a.src}
+                      alt=""
+                      className="intro-stack-beast absolute left-1/2 top-1/2 object-contain object-center opacity-100 w-auto max-w-[min(96vw,900px)]"
+                      style={
+                        {
+                          height: `${stackStage.h * a.stackHFrac}px`,
+                          zIndex: 30,
+                          // 시작 좌표 = step3 클러스터 끝(중심, scale 0.7) → 매끈한 연결
+                          '--fx': '0px',
+                          '--fy': '0px',
+                          '--fr': '0deg',
+                          '--fs': '0.7',
+                          // 최종 stack 좌표
+                          '--sx': `${sx}px`,
+                          '--sy': `${sy}px`,
+                          '--sr': `${a.sr}deg`,
+                          '--ss': String(a.ss),
+                          '--delay': `${a.stackDelayMs}ms`,
+                        } as CSSProperties
+                      }
+                    />
+                  );
+                })}
             </>
           )}
         </div>
