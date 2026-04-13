@@ -856,7 +856,7 @@ export default function SoundCanvas() {
                 <img
                   src="/oh_bremen_logo.svg"
                   alt=""
-                  className="intro-bounce-back block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain"
+                  className="intro-bounce-back block h-auto max-h-[min(52vh,520px)] w-auto max-w-[min(74vw,780px)] object-contain"
                   aria-hidden
                 />
               </div>
@@ -871,7 +871,7 @@ export default function SoundCanvas() {
                 <img
                   src="/oh_bremen_logo.svg"
                   alt=""
-                  className="block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain"
+                  className="block h-auto max-h-[min(52vh,520px)] w-auto max-w-[min(74vw,780px)] object-contain"
                   aria-hidden
                 />
               </div>
@@ -910,7 +910,7 @@ export default function SoundCanvas() {
                 <img
                   src="/oh_bremen_logo.svg"
                   alt=""
-                  className="intro-logo-settle block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain"
+                  className="intro-logo-settle block h-auto max-h-[min(52vh,520px)] w-auto max-w-[min(74vw,780px)] object-contain"
                   aria-hidden
                 />
               </div>
