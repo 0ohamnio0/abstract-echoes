@@ -466,34 +466,16 @@ export default function SoundCanvas() {
     };
   }, []);
 
-  // ── Idle preview animation ──
+  // ── Idle: no generative preview, just static background ──
   useEffect(() => {
-    if (phase !== 'idle') {
-      cancelAnimationFrame(idleAnimFrameRef.current);
-      return;
-    }
+    if (phase !== 'idle') return;
     const canvas = canvasRef.current;
     if (!canvas) return;
-
-    // Reuse existing engine or create one for idle
-    if (!engineRef.current) {
-      const engine = new GenerativeEngine(canvas);
-      engine.params = extractValues(tuningParams);
-      engineRef.current = engine;
-    }
-    const engine = engineRef.current;
-    engine.setIdleMode(true);
-
-    const idleLoop = () => {
-      engine.updateIdle();
-      idleAnimFrameRef.current = requestAnimationFrame(idleLoop);
-    };
-    idleAnimFrameRef.current = requestAnimationFrame(idleLoop);
-
-    return () => {
-      cancelAnimationFrame(idleAnimFrameRef.current);
-    };
-  }, [phase, tuningParams]);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.fillStyle = '#393939';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }, [phase]);
 
   useEffect(() => {
     const stopIdleTitleAnim = () => {
@@ -610,6 +592,7 @@ export default function SoundCanvas() {
           height: 'auto',
           aspectRatio: `${CANVAS_WIDTH} / ${CANVAS_HEIGHT}`,
           imageRendering: 'auto',
+          backgroundColor: '#393939',
         }}
       />
 
@@ -786,7 +769,7 @@ export default function SoundCanvas() {
         <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
           {introStep === 2 && (
             <>
-              <div className="absolute inset-0 bg-black/75" aria-hidden />
+              <div className="absolute inset-0 bg-[#222]/85" aria-hidden />
               <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
                   src="/oh_bremen.png"
@@ -823,7 +806,7 @@ export default function SoundCanvas() {
           )}
           {introStep === 3 && (
             <>
-              <div className="absolute inset-0 bg-black/88" aria-hidden />
+              <div className="absolute inset-0 bg-[#222]/92" aria-hidden />
               <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
                   src="/oh_bremen.png"

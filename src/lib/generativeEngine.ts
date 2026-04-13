@@ -97,7 +97,7 @@ export class GenerativeEngine {
     this.accCanvas.width = canvas.width;
     this.accCanvas.height = canvas.height;
     this.accCtx = this.accCanvas.getContext('2d')!;
-    this.accCtx.fillStyle = '#000';
+    this.accCtx.fillStyle = '#2C2C2C';
     this.accCtx.fillRect(0, 0, canvas.width, canvas.height);
 
     this.glowCanvas = document.createElement('canvas');
@@ -779,7 +779,7 @@ export class GenerativeEngine {
     let sw = src.width, sh = src.width / srcRatio;
     if (sh > src.height) { sh = src.height; sw = src.height * srcRatio; }
     const sx = (src.width - sw) / 2, sy = (src.height - sh) / 2;
-    o.fillStyle = '#000'; o.fillRect(0, 0, w, h);
+    o.fillStyle = '#2C2C2C'; o.fillRect(0, 0, w, h);
     o.drawImage(src, sx, sy, sw, sh, 0, 0, w, h);
     return out.toDataURL('image/png');
   }
@@ -1347,7 +1347,7 @@ export class GenerativeEngine {
     if (this.idleFrame % 6 === 0) {
       ctx.save();
       ctx.globalAlpha = 0.003;
-      ctx.fillStyle = '#000';
+      ctx.fillStyle = '#2C2C2C';
       ctx.fillRect(0, 0, W, H);
       ctx.restore();
     }
@@ -1421,9 +1421,9 @@ export class GenerativeEngine {
   }
 
   clear() {
-    this.accCtx.fillStyle = '#000';
+    this.accCtx.fillStyle = '#2C2C2C';
     this.accCtx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-    this.ctx.fillStyle = '#000';
+    this.ctx.fillStyle = '#2C2C2C';
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     this.activeFlows = []; this.flows = []; this.bursts = [];
     this.scheduledEffects = [];
