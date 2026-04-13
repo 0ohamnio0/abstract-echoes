@@ -107,14 +107,15 @@ export class GenerativeEngine {
   private portraitBuffer: HTMLCanvasElement;
   private portraitCtx: CanvasRenderingContext2D;
   private portraitCursorY = 0;
-  private sessionPeakAmp = 0;        // 현재 세션 진행 중 누적된 최대 진폭
-  private sessionActive = false;     // 세션 중 여부 (portrait slice 확정 타이밍)
+  private sessionActive = false;     // 세션 중 여부 (portrait 세션 간 여백 삽입용)
 
   private history: number[] = [];    // 최근 N 샘플 (waveform amplitude -1~1)
   private time = 0;
   private idle = false;
   private idleT = 0;
   private session: SessionColorTracker;
+  private volEnv = 0;                // 볼륨 엔벨로프 (0..1, attack/release 적용)
+  private lastVoiceAt = -Infinity;   // 마지막 발화 시각 (ms)
 
   // 레거시 API 유지용 — 튜닝 패널이 채우는 자리
   public params: OscParams = {};
@@ -156,34 +157,37 @@ export class GenerativeEngine {
     this.session.feed(f, now);
 
     const gain = p.waveformGain ?? 1.6;
-    // waveform(Uint8Array 0..255, 128 중앙)을 -1~1로 변환 후 히스토리에 최신 샘플 누적
+
+    // 볼륨 엔벨로프 — 빠른 attack(5프레임 ≈ 80ms), 느린 release(30프레임 ≈ 500ms)
+    // 즉각 반응하면서 꺼질 땐 부드럽게 사라지는 인과성 연출
+    const targetVol = f.isSpeaking ? Math.min(1, f.volume * 3) : 0;
+    const attack = 0.35, release = 0.08;
+    const k = targetVol > this.volEnv ? attack : release;
+    this.volEnv += (targetVol - this.volEnv) * k;
+
+    // 현재 파형 스냅샷 × 엔벨로프 → 침묵에선 평평한 선, 발화하면 즉시 부풀어오름
     const w = f.waveform;
     if (w && w.length > 0) {
-      // 프레임당 여러 샘플을 평균해 한 포인트 추가 (히스토리 속도 조절)
-      const stride = Math.max(1, Math.floor(w.length / 6));
-      let maxAbs = 0;
-      for (let i = 0; i < w.length; i += stride) {
-        const v = (w[i] - 128) / 128;
-        if (Math.abs(v) > Math.abs(maxAbs)) maxAbs = v;
+      const target = p.historyLen ?? 1024;
+      const snap = new Array<number>(target);
+      for (let i = 0; i < target; i++) {
+        const srcIdx = Math.floor((i * w.length) / target);
+        const v = (w[srcIdx] - 128) / 128;
+        snap[i] = Math.max(-1, Math.min(1, v * gain * this.volEnv));
       }
-      this.history.push(Math.max(-1, Math.min(1, maxAbs * gain)));
-      while (this.history.length > (p.historyLen ?? 1024)) this.history.shift();
+      this.history = snap;
     }
 
-    // 세션 상태 전이: 말하는 중이면 세션 활성, 2s 갭 후 첫 발화 시 portrait slice 확정
-    if (f.isSpeaking) {
-      if (!this.sessionActive) {
-        this.sessionActive = true;
-        this.sessionPeakAmp = 0;
-      }
-      this.sessionPeakAmp = Math.max(this.sessionPeakAmp, f.volume);
-    } else {
-      // 침묵 > gap 이면 세션 종료 + portrait에 한 슬라이스 확정
-      if (this.sessionActive && now - (this.session as any).lastVoiceTime > gapMs) {
-        this.commitPortraitSlice();
-        this.sessionActive = false;
-      }
+    // 발화 중엔 실시간으로 portrait 버퍼에 한 줄씩 누적
+    if (f.isSpeaking) this.lastVoiceAt = now;
+    if (this.volEnv > 0.02) this.paintPortraitLive();
+
+    // 세션 갭 넘으면 portrait 커서에 여백 주어 세션 간 시각 구분
+    if (this.sessionActive && now - this.lastVoiceAt > gapMs) {
+      this.portraitCursorY += 24; // gap separator
+      this.sessionActive = false;
     }
+    if (f.isSpeaking && !this.sessionActive) this.sessionActive = true;
 
     this.render(false);
   }
@@ -191,11 +195,17 @@ export class GenerativeEngine {
   updateIdle() {
     this.time += 1 / 60;
     this.idleT += 1 / 60;
-    // idle: 낮은 진폭 사인 + 미세 노이즈
+    // idle: 가로 전체에 걸쳐 낮은 진폭 사인파(느리게 위상 이동)
     const amp = (this.params.idleAmplitude ?? 0.08);
-    const v = Math.sin(this.idleT * 1.2) * amp * 0.5 + (Math.random() - 0.5) * amp * 0.3;
-    this.history.push(v);
-    while (this.history.length > (this.params.historyLen ?? 1024)) this.history.shift();
+    const target = this.params.historyLen ?? 1024;
+    const snap = new Array<number>(target);
+    const cycles = 2.4;
+    for (let i = 0; i < target; i++) {
+      const t = i / target;
+      snap[i] = Math.sin(t * Math.PI * 2 * cycles + this.idleT * 0.8) * amp
+             + (Math.random() - 0.5) * amp * 0.15;
+    }
+    this.history = snap;
     this.render(true);
   }
 
@@ -209,18 +219,13 @@ export class GenerativeEngine {
     this.portraitCtx.fillStyle = '#FFFFFF';
     this.portraitCtx.fillRect(0, 0, this.portraitBuffer.width, this.portraitBuffer.height);
     this.portraitCursorY = 40;
-    this.sessionPeakAmp = 0;
     this.sessionActive = false;
+    this.volEnv = 0;
   }
 
   triggerSpecialEvent(_word: TriggerWord) {
-    // 오실로스코프 버전에서는 키워드 이펙트를 단순화 — 일시적 컬러 플래시
-    // TODO(64/65 이후 재방문): 동물 요소 버스트와 통합할지 결정
-    const flashAmp = 0.6;
-    for (let i = 0; i < 20; i++) {
-      this.history.push(flashAmp * (Math.random() * 2 - 1));
-    }
-    while (this.history.length > (this.params.historyLen ?? 1024)) this.history.shift();
+    // TODO(task 64/65): 오실로스코프 버전에서의 키워드 이펙트 재설계 대기
+    // 현재는 no-op (다음 update에서 파형 스냅샷이 덮어쓰므로 영향 없음)
   }
 
   // ── 렌더 ─────────────────────────────────────────────────────
@@ -266,11 +271,27 @@ export class GenerativeEngine {
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.beginPath();
-      for (let i = 0; i < len; i++) {
-        const x = i * step;
-        const y = midY - this.history[i] * (H * 0.38);
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      // 가우시안 7탭 커널 (1,6,15,20,15,6,1 / 64) + 인접 중점 경유 quadratic
+      const smooth = (i: number) => {
+        const h = this.history;
+        const g = (off: number) => h[Math.max(0, Math.min(len - 1, i + off))];
+        return (g(-3) + g(3)) * (1 / 64)
+             + (g(-2) + g(2)) * (6 / 64)
+             + (g(-1) + g(1)) * (15 / 64)
+             +  g(0)          * (20 / 64);
+      };
+      const pt = (i: number) => ({ x: i * step, y: midY - smooth(i) * (H * 0.38) });
+      let prev = pt(0);
+      ctx.moveTo(prev.x, prev.y);
+      for (let i = 1; i < len - 1; i++) {
+        const cur = pt(i);
+        const mx = (prev.x + cur.x) / 2;
+        const my = (prev.y + cur.y) / 2;
+        ctx.quadraticCurveTo(prev.x, prev.y, mx, my);
+        prev = cur;
       }
+      const last = pt(len - 1);
+      ctx.quadraticCurveTo(prev.x, prev.y, last.x, last.y);
       ctx.stroke();
       ctx.restore();
     }
@@ -279,14 +300,17 @@ export class GenerativeEngine {
     this.ctx.drawImage(this.trailCanvas, 0, 0, this.canvas.width, this.canvas.height);
   }
 
-  // ── 세로 월페이퍼: 세션 한 번마다 가로 슬라이스를 세로로 쌓기 ──
-  private commitPortraitSlice() {
+  // ── 세로 월페이퍼 라이브 누적 ──
+  // 발화 중 매 프레임 한 줄(가로 파형 → 세로 중앙에 얇은 스캔라인)을 portrait에 그리고
+  // 커서를 pixelAdvance 만큼 내려 시간축을 세로 방향으로 누적한다
+  private paintPortraitLive() {
     const buf = this.portraitBuffer;
     const bctx = this.portraitCtx;
-    const sliceH = 120;
-    if (this.portraitCursorY + sliceH > buf.height - 40) {
-      // 공간 부족 시 위로 스크롤
-      const shift = sliceH;
+    const pixelAdvance = 2.0; // 프레임당 세로 진행 (60fps × 2px ≈ 120px/s)
+
+    // 공간 부족 시 위로 스크롤
+    if (this.portraitCursorY + pixelAdvance > buf.height - 40) {
+      const shift = buf.height * 0.25;
       const tmp = document.createElement('canvas');
       tmp.width = buf.width; tmp.height = buf.height;
       tmp.getContext('2d')!.drawImage(buf, 0, 0);
@@ -298,36 +322,38 @@ export class GenerativeEngine {
 
     const [h, s, l] = this.session.getLockedHsl() ?? [220, 85, 45];
     const W = buf.width;
+    const marginX = 80;
+    const drawW = W - marginX * 2;
+    // 이번 프레임의 파형을 가로 방향으로 압축 — 세로 폭(진폭)만 표현
+    let peak = 0;
+    for (const v of this.history) if (Math.abs(v) > peak) peak = Math.abs(v);
+    const halfAmp = peak * 160; // 세로 진폭 스케일 (픽셀)
     const cx = W / 2;
-    const len = Math.min(this.history.length, 600);
-    const slice = this.history.slice(-len);
-    const cy = this.portraitCursorY + sliceH / 2;
+    const y = this.portraitCursorY;
 
-    // 폰 월페이퍼는 흰 배경 + 진한 컬러(밝기 낮춤) 단색, 260406 스타일
     bctx.save();
     bctx.strokeStyle = `hsl(${h}, ${s}%, ${Math.max(25, l - 25)}%)`;
-    bctx.lineWidth = 2;
     bctx.lineCap = 'round';
-    bctx.lineJoin = 'round';
+    // 얇은 수평 스캔 라인: 중앙에서 좌우로 진폭에 비례하는 폭
+    bctx.lineWidth = 1.4;
     bctx.beginPath();
-    const step = (W - 120) / len;
-    for (let i = 0; i < len; i++) {
-      const x = 60 + i * step;
-      const y = cy - slice[i] * (sliceH * 0.45);
-      if (i === 0) bctx.moveTo(x, y); else bctx.lineTo(x, y);
-    }
+    bctx.moveTo(cx - halfAmp, y);
+    bctx.lineTo(cx + halfAmp, y);
     bctx.stroke();
-    // 중앙 축 흐린 가이드
-    bctx.globalAlpha = 0.12;
-    bctx.strokeStyle = `hsl(${h}, ${s}%, ${l}%)`;
-    bctx.lineWidth = 1;
+    // 파형 shape도 살짝 겹쳐 그려 텍스처감 — 가로 파장의 존재 암시
+    bctx.globalAlpha = 0.35;
+    bctx.lineWidth = 0.8;
     bctx.beginPath();
-    bctx.moveTo(cx - (W - 120) / 2, cy);
-    bctx.lineTo(cx + (W - 120) / 2, cy);
+    const len = this.history.length;
+    for (let i = 0; i < len; i += 4) {
+      const x = marginX + (i / len) * drawW;
+      const yy = y + this.history[i] * 6;
+      if (i === 0) bctx.moveTo(x, yy); else bctx.lineTo(x, yy);
+    }
     bctx.stroke();
     bctx.restore();
 
-    this.portraitCursorY += sliceH;
+    this.portraitCursorY += pixelAdvance;
   }
 
   // ── Export ──────────────────────────────────────────────────
@@ -337,12 +363,7 @@ export class GenerativeEngine {
   }
 
   toPortraitDataURL(w = 1080, h = 2340): string {
-    // 세로 월페이퍼: portraitBuffer 내용이 있으면 그대로, 없으면 현재 히스토리로 한 슬라이스 즉석 생성
-    const hasContent = this.portraitCursorY > 40;
-    if (!hasContent) {
-      // 아직 세션이 commit 안 됐으면 지금 강제 커밋
-      this.commitPortraitSlice();
-    }
+    // 발화가 없었으면 portraitBuffer가 비어 있을 수 있음 → 그대로 흰 배경 반환
     const out = document.createElement('canvas');
     out.width = w; out.height = h;
     const o = out.getContext('2d')!;
