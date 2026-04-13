@@ -81,6 +81,60 @@
   --intro-oh-y: calc(1.5vh + 5px);
 }
 
+/* step1: 거대 OH!BREMEN 크롭인 — 화면 밖으로 잘려나갈 정도로 커진 뒤 페이드 */
+@keyframes introGiantOh {
+  0%   { opacity: 0; transform: scale(0.4); }
+  18%  { opacity: 1; transform: scale(5.6); }
+  72%  { opacity: 1; transform: scale(6.2); }
+  100% { opacity: 0; transform: scale(6.4); }
+}
+.intro-giant-oh {
+  transform-origin: center center;
+  will-change: transform, opacity;
+  animation: introGiantOh 1.6s cubic-bezier(0.18, 0.82, 0.32, 1) forwards;
+}
+
+/* step2 강화: 아래에서 위로 + 스케일업 + 살짝 흔들림 (2.5s) */
+@keyframes introRiseShake {
+  0%   { opacity: 0; transform: translateY(60vh) scale(0.6) rotate(0deg); }
+  18%  { opacity: 1; transform: translateY(0) scale(1) rotate(-0.7deg); }
+  30%  { transform: translateY(-4px) scale(1.02) rotate(0.6deg); }
+  42%  { transform: translateY(2px) scale(0.99) rotate(-0.5deg); }
+  54%  { transform: translateY(-3px) scale(1.015) rotate(0.4deg); }
+  66%  { transform: translateY(2px) scale(0.995) rotate(-0.3deg); }
+  78%  { transform: translateY(-2px) scale(1.005) rotate(0.2deg); }
+  90%  { transform: translateY(1px) scale(1) rotate(0deg); }
+  100% { opacity: 1; transform: translateY(0) scale(1) rotate(0deg); }
+}
+.intro-rise-shake {
+  transform-origin: center center;
+  will-change: transform, opacity;
+  animation: introRiseShake 2.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* step4 정착: 로고가 작아지며 화면 하단으로 (잔존), 동물 요소들은 가로선 형태로 정렬 */
+@keyframes introLogoSettle {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0.95; transform: translateY(36vh) scale(0.32); }
+}
+.intro-logo-settle {
+  transform-origin: center center;
+  will-change: transform, opacity;
+  animation: introLogoSettle 1.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes introBeastSettle {
+  0%   { opacity: 1; transform: translate(-50%, -50%) translate(var(--fx), var(--fy)) rotate(var(--fr)) scale(var(--fs)); }
+  60%  { opacity: 1; }
+  100% { opacity: 0.92; transform: translate(-50%, -50%) translate(var(--lx, 0), 28vh) rotate(0deg) scale(0.42); }
+}
+.intro-beast-settle {
+  transform-origin: center center;
+  will-change: transform, opacity;
+  animation: introBeastSettle 1.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation-delay: var(--delay, 0ms);
+}
+
 /* step1: 처음부터 최종 슬롯 Y에 두고 scale·opacity만 (아래→위로 “뜨는” 느낌 제거 = step2와 동일 좌표계) */
 @keyframes introLandingOh {
   0% {

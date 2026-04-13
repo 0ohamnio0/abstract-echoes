@@ -155,6 +155,14 @@ const INTRO_BEAST_CONFIG = [
 
 type Phase = 'idle' | 'intro' | 'listening';
 
+// 동물 SVG ↔ 사운드 매핑 (intro-stack-1~4 순서, INTRO_BEAST_CONFIG의 등장 순서와는 별개)
+const BEAST_AUDIO: Record<string, string> = {
+  '/intro-stack-1.svg': '/intro-audio/cat.wav',
+  '/intro-stack-2.svg': '/intro-audio/rooster.wav',
+  '/intro-stack-3.svg': '/intro-audio/dog.mp3',
+  '/intro-stack-4.svg': '/intro-audio/footsteps.wav',
+};
+
 export default function SoundCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const analyzerRef = useRef<AudioAnalyzer | null>(null);
@@ -166,6 +174,30 @@ export default function SoundCanvas() {
   const idleTitleHostRef = useRef<HTMLDivElement>(null);
   const idleTitleRafRef = useRef<number | null>(null);
   const introTimersRef = useRef<number[]>([]);
+  const introAudioCacheRef = useRef<Record<string, HTMLAudioElement>>({});
+
+  // 동물 사운드 프리로드
+  useEffect(() => {
+    const cache: Record<string, HTMLAudioElement> = {};
+    for (const [svg, src] of Object.entries(BEAST_AUDIO)) {
+      const a = new Audio(src);
+      a.preload = 'auto';
+      a.volume = 0.7;
+      cache[svg] = a;
+    }
+    introAudioCacheRef.current = cache;
+  }, []);
+
+  const playBeastAudio = useCallback((svg: string) => {
+    const a = introAudioCacheRef.current[svg];
+    if (!a) return;
+    try {
+      // 매번 같은 elem을 처음부터 재생 (concurrent 재생이 필요하면 cloneNode)
+      const inst = a.cloneNode(true) as HTMLAudioElement;
+      inst.volume = a.volume;
+      void inst.play().catch(() => {});
+    } catch {}
+  }, []);
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [introStep, setIntroStep] = useState(0);
@@ -315,18 +347,30 @@ export default function SoundCanvas() {
     engineRef.current?.clear();
     engineRef.current = null;
     setIsActive(false);
-    setIntroStep(2);
+    setIntroStep(1);
     setPhase('intro');
     setShowSettings(false);
     setShowTuning(false);
     introTimersRef.current = [];
-    introTimersRef.current.push(window.setTimeout(() => setIntroStep(3), 4000));
+    // 4단계 시퀀스 (3차 피드백 260407 기준)
+    // step1: 거대 OH!BREMEN 크롭인 (1.6s)
+    // step2: 로고 아래→위 + 흔들림 (2.5s)
+    // step3: 동물 버스트 (3.4s, 기존 approach)
+    // step4: 정착 (1.4s, 로고+동물 축소 잔존)
+    introTimersRef.current.push(window.setTimeout(() => setIntroStep(2), 1600));
+    introTimersRef.current.push(window.setTimeout(() => setIntroStep(3), 4100));
+    // 동물 버스트 사운드 — 각 SVG의 화면 진입 delay와 동일 타이밍
+    INTRO_BEAST_CONFIG.forEach((a, i) => {
+      const t = 4100 + 120 + i * 110;
+      introTimersRef.current.push(window.setTimeout(() => playBeastAudio(a.src), t));
+    });
+    introTimersRef.current.push(window.setTimeout(() => setIntroStep(4), 7500));
     introTimersRef.current.push(
       window.setTimeout(() => {
         void startMic();
-      }, 8350),
+      }, 8900),
     );
-  }, [phase, clearIntroTimers, startMic]);
+  }, [phase, clearIntroTimers, startMic, playBeastAudio]);
 
   const clear = useCallback(() => {
     engineRef.current?.clear();
@@ -785,15 +829,48 @@ export default function SoundCanvas() {
 
       {phase === 'intro' && (
         <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
+          {/* step 1: 거대 OH!BREMEN 크롭인 */}
+          {introStep === 1 && (
+            <>
+              <div className="absolute inset-0 bg-[#222]" aria-hidden />
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <img
+                  src="/oh_bremen.png"
+                  alt=""
+                  className="intro-giant-oh block h-auto w-auto max-h-[60vh] max-w-[80vw] object-contain"
+                  style={{ filter: 'grayscale(1) contrast(1.2) brightness(1.15)' }}
+                  aria-hidden
+                />
+              </div>
+            </>
+          )}
+
+          {/* step 2: 로고 아래→위 + 2.5s 흔들림 (음성 동기 자리) */}
           {introStep === 2 && (
             <>
-              <div className="absolute inset-0 bg-[#222]/85" aria-hidden />
+              <div className="absolute inset-0 bg-[#222]" aria-hidden />
               <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
                   src="/oh_bremen.png"
                   alt=""
-                  className="intro-landing-oh block h-auto max-h-[min(32vh,320px)] w-auto max-w-[min(62vw,640px)] object-contain opacity-95"
+                  className="intro-rise-shake block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain"
                   style={{ filter: 'grayscale(1) contrast(1.2) brightness(1.1)' }}
+                  aria-hidden
+                />
+              </div>
+            </>
+          )}
+
+          {/* step 3: 동물 요소 버스트 (로고 뒤에서 분출), 로고는 잔존 */}
+          {introStep === 3 && (
+            <>
+              <div className="absolute inset-0 bg-[#222]/95" aria-hidden />
+              <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
+                <img
+                  src="/oh_bremen.png"
+                  alt=""
+                  className="intro-oh-fadeout-pose block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain pointer-events-none"
+                  style={{ filter: 'grayscale(1) contrast(1.2) brightness(1.1)', opacity: 0.95 }}
                   aria-hidden
                 />
               </div>
@@ -815,53 +892,51 @@ export default function SoundCanvas() {
                       '--oy': `${a.oy}px`,
                       '--or': `${a.orDeg}deg`,
                       '--os': String(a.os),
-                      '--delay': `${180 + i * 140}ms`,
+                      '--delay': `${120 + i * 110}ms`,
                     } as CSSProperties
                   }
                 />
               ))}
             </>
           )}
-          {introStep === 3 && (
+
+          {/* step 4: 정착 — 로고 작아져 하단으로 내려가고, 동물들 가로선 정렬 */}
+          {introStep === 4 && (
             <>
-              <div className="absolute inset-0 bg-[#222]/92" aria-hidden />
+              <div className="absolute inset-0 bg-[#222]/90" aria-hidden />
               <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
                   src="/oh_bremen.png"
                   alt=""
-                  className="intro-oh-fadeout intro-oh-fadeout-pose block h-auto max-h-[min(32vh,320px)] w-auto max-w-[min(62vw,640px)] object-contain pointer-events-none"
+                  className="intro-logo-settle block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain"
                   style={{ filter: 'grayscale(1) contrast(1.2) brightness(1.1)' }}
                   aria-hidden
                 />
               </div>
-              {[...INTRO_BEAST_CONFIG]
-                .sort((x, y) => y.stackCy - x.stackCy)
-                .map(a => {
-                  const { sx, sy } = stackOffsetPx(a.stackCx, a.stackCy, stackStage);
-                  return (
-                    <img
-                      key={`stack-${a.src}`}
-                      src={a.src}
-                      alt=""
-                      className="intro-stack-beast absolute left-1/2 top-1/2 object-contain object-center opacity-100 w-auto max-w-[min(96vw,900px)]"
-                      style={
-                        {
-                          height: `${stackStage.h * a.stackHFrac}px`,
-                          filter: 'grayscale(1) contrast(1.18) brightness(1.08)',
-                          '--fx': `${a.fx}px`,
-                          '--fy': `${a.fy}px`,
-                          '--fr': `${a.fr}deg`,
-                          '--fs': String(a.fs),
-                          '--sx': `${sx}px`,
-                          '--sy': `${sy}px`,
-                          '--sr': `${a.sr}deg`,
-                          '--ss': String(a.ss),
-                          '--delay': `${a.stackDelayMs}ms`,
-                        } as CSSProperties
-                      }
-                    />
-                  );
-                })}
+              {INTRO_BEAST_CONFIG.map((a, i) => {
+                // 가로선 정렬: 4개 균등 분포
+                const lx = ((i - (INTRO_BEAST_CONFIG.length - 1) / 2) * 180);
+                return (
+                  <img
+                    key={`settle-${a.src}`}
+                    src={a.src}
+                    alt=""
+                    className="intro-beast-settle absolute left-1/2 top-1/2 object-contain object-center w-auto max-w-[min(96vw,900px)]"
+                    style={
+                      {
+                        height: `${stackStage.h * a.stackHFrac}px`,
+                        filter: 'grayscale(1) contrast(1.18) brightness(1.08)',
+                        '--fx': `${a.fx}px`,
+                        '--fy': `${a.fy}px`,
+                        '--fr': `${a.fr}deg`,
+                        '--fs': String(a.fs),
+                        '--lx': `${lx}px`,
+                        '--delay': `${i * 60}ms`,
+                      } as CSSProperties
+                    }
+                  />
+                );
+              })}
             </>
           )}
         </div>
