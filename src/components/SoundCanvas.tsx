@@ -927,16 +927,15 @@ export default function SoundCanvas() {
                         {
                           height: `${stackStage.h * a.stackHFrac * 1.3}px`,
                           zIndex: 30,
-                          // step3 끝(approach 도착, 1.3× 스케일)에서 매끈하게 이어짐
+                          // step3 끝(1.3× approach 도착) → stack 진행하며 원본 사이즈(1.0×)로 축소
                           '--fx': `${a.fx}px`,
                           '--fy': `${a.fy}px`,
                           '--fr': `${a.fr}deg`,
                           '--fs': String(a.fs * 1.3),
-                          // 최종 stack은 1.3× 유지
                           '--sx': `${sx}px`,
                           '--sy': `${sy}px`,
                           '--sr': `${a.sr}deg`,
-                          '--ss': String(a.ss * 1.3),
+                          '--ss': String(a.ss),
                           '--delay': `${a.stackDelayMs}ms`,
                         } as CSSProperties
                       }
