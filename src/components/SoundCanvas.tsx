@@ -357,21 +357,20 @@ export default function SoundCanvas() {
     // step2: 로고 아래→위 + 흔들림 (2.5s)
     // step3: 동물 버스트 (3.4s, 기존 approach)
     // step4: 정착 (1.4s, 로고+동물 축소 잔존)
-    // 타이밍 (step4 = 밖→진입 / step5 = 스톱모션 스택)
-    // 1.6 + 2.5 + 4.0 + 3.4 + 3.2 = 14.7s
+    // 새 시퀀스 (burst 제거): giant → bounce-back → approach → stack
+    // 1.6 + 2.2 + 3.5 + 3.2 = 10.5s
     introTimersRef.current.push(window.setTimeout(() => setIntroStep(2), 1600));
-    introTimersRef.current.push(window.setTimeout(() => setIntroStep(3), 4100));
-    // 동물 사운드 — step3 burst 외곽 분출 구간
+    introTimersRef.current.push(window.setTimeout(() => setIntroStep(3), 3800));
+    // 동물 사운드 — approach 진입 타이밍과 동기 (각 beast의 delay와 일치)
     INTRO_BEAST_CONFIG.forEach((a, i) => {
-      const t = 4100 + 700 + i * 180;
+      const t = 3800 + 120 + i * 180;
       introTimersRef.current.push(window.setTimeout(() => playBeastAudio(a.src), t));
     });
-    introTimersRef.current.push(window.setTimeout(() => setIntroStep(4), 8100));  // approach
-    introTimersRef.current.push(window.setTimeout(() => setIntroStep(5), 11500)); // stack
+    introTimersRef.current.push(window.setTimeout(() => setIntroStep(4), 7300)); // stack
     introTimersRef.current.push(
       window.setTimeout(() => {
         void startMic();
-      }, 14700),
+      }, 10500),
     );
   }, [phase, clearIntroTimers, startMic, playBeastAudio]);
 
@@ -849,78 +848,26 @@ export default function SoundCanvas() {
             </>
           )}
 
-          {/* step 2: 로고 아래→위 + 2.5s 흔들림 (음성 동기 자리) */}
+          {/* step 2: giant scale 10에서 바운스로 scale 1로 복귀 */}
           {introStep === 2 && (
             <>
               <div className="absolute inset-0 bg-[#222]" aria-hidden />
-              <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
                   src="/oh_bremen_logo.svg"
                   alt=""
-                  className="intro-rise-shake block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain"
-                  style={{ filter: 'grayscale(1) contrast(1.2) brightness(1.1)' }}
+                  className="intro-bounce-back block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain"
                   aria-hidden
                 />
               </div>
             </>
           )}
 
-          {/* step 3: 4-phase 버스트 (260407 spec)
-              로고 뒤 → 외곽 폭발 → 안쪽 수축 → 좌우 비행 → 클러스터 */}
+          {/* step 3: 밖 → 진입 (원본 introApproachBeast, 1.3× 키움) */}
           {introStep === 3 && (
             <>
               <div className="absolute inset-0 bg-[#222]" aria-hidden />
-              <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
-                <img
-                  src="/oh_bremen_logo.svg"
-                  alt=""
-                  className="block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain"
-                  aria-hidden
-                />
-              </div>
-              {INTRO_BEAST_CONFIG.map((a, i) => {
-                // 4-phase 버스트 변수 (per-beast 방향 분산)
-                // bx/by: 외곽 폭발 도착 위치 (4분면으로 분산)
-                // lr: 좌우 비행 X 진폭 (홀짝 부호)
-                // cx/cy: 최종 클러스터 좌표 (모두 같은 점으로 → "하나로 뭉쳐짐")
-                const angles = [-Math.PI * 0.7, -Math.PI * 0.3, Math.PI * 0.3, Math.PI * 0.7];
-                const ang = angles[i % 4];
-                const burstR = 38; // vh 단위로 외곽 분출 반경
-                const bx = `${(Math.cos(ang) * burstR).toFixed(1)}vw`;
-                const by = `${(Math.sin(ang) * burstR).toFixed(1)}vh`;
-                const lr = `${i % 2 === 0 ? 30 : -30}vw`;
-                const cx = '0vw';
-                const cy = '0vh';
-                return (
-                  <img
-                    key={a.src}
-                    src={a.src}
-                    alt=""
-                    className="intro-beast-burst absolute left-1/2 top-1/2 object-contain object-center w-auto max-w-[min(96vw,900px)]"
-                    style={
-                      {
-                        height: `${stackStage.h * a.stackHFrac}px`,
-                        zIndex: 30,
-                        '--fr': `${a.fr}deg`,
-                        '--bx': bx,
-                        '--by': by,
-                        '--lr': lr,
-                        '--cx': cx,
-                        '--cy': cy,
-                        '--delay': `${i * 80}ms`,
-                      } as CSSProperties
-                    }
-                  />
-                );
-              })}
-            </>
-          )}
-
-          {/* step 4: 밖 → 진입 (원본 introApproachBeast 부활) */}
-          {introStep === 4 && (
-            <>
-              <div className="absolute inset-0 bg-[#222]" aria-hidden />
-              <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
                   src="/oh_bremen_logo.svg"
                   alt=""
@@ -936,16 +883,16 @@ export default function SoundCanvas() {
                   className="intro-approach-beast absolute left-1/2 top-1/2 object-contain object-center opacity-100 w-auto max-w-[min(96vw,900px)]"
                   style={
                     {
-                      height: `${stackStage.h * a.stackHFrac}px`,
+                      height: `${stackStage.h * a.stackHFrac * 1.3}px`,
                       zIndex: 30,
                       '--fx': `${a.fx}px`,
                       '--fy': `${a.fy}px`,
                       '--fr': `${a.fr}deg`,
-                      '--fs': String(a.fs),
+                      '--fs': String(a.fs * 1.3),
                       '--ox': `${a.ox}px`,
                       '--oy': `${a.oy}px`,
                       '--or': `${a.orDeg}deg`,
-                      '--os': String(a.os),
+                      '--os': String(a.os * 1.3),
                       '--delay': `${120 + i * 110}ms`,
                     } as CSSProperties
                   }
@@ -954,8 +901,8 @@ export default function SoundCanvas() {
             </>
           )}
 
-          {/* step 5: 스톱모션 스택 (원본 introStackBeast) + 로고 정착 */}
-          {introStep === 5 && (
+          {/* step 4: 스톱모션 스택 (원본 introStackBeast) + 로고 정착 */}
+          {introStep === 4 && (
             <>
               <div className="absolute inset-0 bg-[#222]" aria-hidden />
               <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -978,16 +925,18 @@ export default function SoundCanvas() {
                       className="intro-stack-beast absolute left-1/2 top-1/2 object-contain object-center opacity-100 w-auto max-w-[min(96vw,900px)]"
                       style={
                         {
-                          height: `${stackStage.h * a.stackHFrac}px`,
+                          height: `${stackStage.h * a.stackHFrac * 1.3}px`,
                           zIndex: 30,
+                          // step3 끝(approach 도착, 1.3× 스케일)에서 매끈하게 이어짐
                           '--fx': `${a.fx}px`,
                           '--fy': `${a.fy}px`,
                           '--fr': `${a.fr}deg`,
-                          '--fs': String(a.fs),
+                          '--fs': String(a.fs * 1.3),
+                          // 최종 stack은 1.3× 유지
                           '--sx': `${sx}px`,
                           '--sy': `${sy}px`,
                           '--sr': `${a.sr}deg`,
-                          '--ss': String(a.ss),
+                          '--ss': String(a.ss * 1.3),
                           '--delay': `${a.stackDelayMs}ms`,
                         } as CSSProperties
                       }

@@ -82,12 +82,11 @@
   --intro-oh-y: calc(1.5vh + 5px);
 }
 
-/* step1: 거대 OH!BREMEN — "화면 밖으로 잘려나가도록 더 크게" 명시 요청 반영, 9~10x */
+/* step1: 거대 OH!BREMEN — 화면 밖으로 잘려나가게 큼. step2 시작점과 매끈히 이어지도록 끝나는 scale 유지 (페이드 X) */
 @keyframes introGiantOh {
   0%   { opacity: 0; transform: scale(0.5); }
-  20%  { opacity: 1; transform: scale(8); }
-  75%  { opacity: 1; transform: scale(10); }
-  100% { opacity: 0; transform: scale(10.5); }
+  25%  { opacity: 1; transform: scale(8); }
+  100% { opacity: 1; transform: scale(10); }
 }
 .intro-giant-oh {
   transform-origin: center center;
@@ -95,22 +94,19 @@
   animation: introGiantOh 1.6s cubic-bezier(0.18, 0.82, 0.32, 1) forwards;
 }
 
-/* step2 강화: 아래에서 위로 + 스케일업 + 살짝 흔들림 (2.5s) */
-@keyframes introRiseShake {
-  0%   { opacity: 0; transform: translateY(60vh) scale(0.6) rotate(0deg); }
-  18%  { opacity: 1; transform: translateY(0) scale(1) rotate(-0.7deg); }
-  30%  { transform: translateY(-4px) scale(1.02) rotate(0.6deg); }
-  42%  { transform: translateY(2px) scale(0.99) rotate(-0.5deg); }
-  54%  { transform: translateY(-3px) scale(1.015) rotate(0.4deg); }
-  66%  { transform: translateY(2px) scale(0.995) rotate(-0.3deg); }
-  78%  { transform: translateY(-2px) scale(1.005) rotate(0.2deg); }
-  90%  { transform: translateY(1px) scale(1) rotate(0deg); }
-  100% { opacity: 1; transform: translateY(0) scale(1) rotate(0deg); }
+/* step2: giant scale 10에서 바운스로 scale 1로 복귀 (자연스러운 연결) */
+@keyframes introBounceBack {
+  0%   { opacity: 1; transform: scale(10); }
+  35%  { transform: scale(0.85); }
+  55%  { transform: scale(1.12); }
+  75%  { transform: scale(0.96); }
+  90%  { transform: scale(1.03); }
+  100% { opacity: 1; transform: scale(1); }
 }
-.intro-rise-shake {
+.intro-bounce-back {
   transform-origin: center center;
   will-change: transform, opacity;
-  animation: introRiseShake 2.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: introBounceBack 2.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* step3: burst → retract → fly L-R → cluster (260407 spec)
