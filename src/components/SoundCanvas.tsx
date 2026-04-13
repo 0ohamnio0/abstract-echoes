@@ -201,6 +201,7 @@ export default function SoundCanvas() {
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [introStep, setIntroStep] = useState(0);
+  const [introExiting, setIntroExiting] = useState(false);
   const [isActive, setIsActive] = useState(false);
   const [debugVolume, setDebugVolume] = useState(0);
   const [debugSpeaking, setDebugSpeaking] = useState(false);
@@ -334,6 +335,7 @@ export default function SoundCanvas() {
     speechRef.current = null;
     setIsActive(false);
     setIntroStep(0);
+    setIntroExiting(false);
     clearIntroTimers();
     engineRef.current?.clear();
     engineRef.current = null; // Will be recreated by idle effect
@@ -348,6 +350,7 @@ export default function SoundCanvas() {
     engineRef.current = null;
     setIsActive(false);
     setIntroStep(1);
+    setIntroExiting(false);
     setPhase('intro');
     setShowSettings(false);
     setShowTuning(false);
@@ -370,10 +373,12 @@ export default function SoundCanvas() {
       introTimersRef.current.push(window.setTimeout(() => playBeastAudio(a.src), t));
     });
     introTimersRef.current.push(window.setTimeout(() => setIntroStep(4), 6800));
+    // step4 stack 4.3s 끝난 직후(11100ms)부터 600ms 여지 → 800ms 페이드아웃 → mic
+    introTimersRef.current.push(window.setTimeout(() => setIntroExiting(true), 11700));
     introTimersRef.current.push(
       window.setTimeout(() => {
         void startMic();
-      }, 11000),
+      }, 12500),
     );
   }, [phase, clearIntroTimers, startMic, playBeastAudio]);
 
@@ -834,7 +839,9 @@ export default function SoundCanvas() {
       )}
 
       {phase === 'intro' && (
-        <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
+        <div
+          className={`absolute inset-0 pointer-events-none z-20 overflow-hidden transition-opacity duration-700 ease-out ${introExiting ? 'opacity-0' : 'opacity-100'}`}
+        >
           {/* step 1: 거대 OH!BREMEN 크롭인 */}
           {introStep === 1 && (
             <>
