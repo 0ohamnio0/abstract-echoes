@@ -85,10 +85,19 @@
 @keyframes introLandingOh {
   0% {
     opacity: 0;
-    transform: scale(0.52) translateY(var(--intro-oh-y));
+    transform: scale(0.03) translateY(var(--intro-oh-y));
   }
-  12% {
+  5% {
     opacity: 1;
+  }
+  45% {
+    transform: scale(3.5) translateY(var(--intro-oh-y));
+  }
+  65% {
+    transform: scale(0.92) translateY(var(--intro-oh-y));
+  }
+  80% {
+    transform: scale(1.08) translateY(var(--intro-oh-y));
   }
   100% {
     opacity: 1;
@@ -98,7 +107,7 @@
 .intro-landing-oh {
   transform-origin: center center;
   will-change: transform, opacity;
-  animation: introLandingOh 2.8s cubic-bezier(0.22, 0.82, 0.28, 1) forwards;
+  animation: introLandingOh 1.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* step2(다음 장면)에서 같은 슬롯 유지 — 페이드만 */
