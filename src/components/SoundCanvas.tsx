@@ -357,20 +357,20 @@ export default function SoundCanvas() {
     // step2: 로고 아래→위 + 흔들림 (2.5s)
     // step3: 동물 버스트 (3.4s, 기존 approach)
     // step4: 정착 (1.4s, 로고+동물 축소 잔존)
-    // 새 시퀀스 (burst 제거): giant → bounce-back → approach → stack
-    // 1.6 + 2.2 + 3.5 + 3.2 = 10.5s
-    introTimersRef.current.push(window.setTimeout(() => setIntroStep(2), 1600));
-    introTimersRef.current.push(window.setTimeout(() => setIntroStep(3), 3800));
-    // 동물 사운드 — approach 진입 타이밍과 동기 (각 beast의 delay와 일치)
+    // 새 시퀀스: giant(빠르게) → bounce-back → approach → stack
+    // 1.0 + 2.2 + 3.5 + 3.2 = 9.9s
+    introTimersRef.current.push(window.setTimeout(() => setIntroStep(2), 1000));
+    introTimersRef.current.push(window.setTimeout(() => setIntroStep(3), 3200));
+    // 동물 사운드 — approach 진입 타이밍과 동기
     INTRO_BEAST_CONFIG.forEach((a, i) => {
-      const t = 3800 + 120 + i * 180;
+      const t = 3200 + 120 + i * 180;
       introTimersRef.current.push(window.setTimeout(() => playBeastAudio(a.src), t));
     });
-    introTimersRef.current.push(window.setTimeout(() => setIntroStep(4), 7300)); // stack
+    introTimersRef.current.push(window.setTimeout(() => setIntroStep(4), 6700)); // stack
     introTimersRef.current.push(
       window.setTimeout(() => {
         void startMic();
-      }, 10500),
+      }, 9900),
     );
   }, [phase, clearIntroTimers, startMic, playBeastAudio]);
 
@@ -883,16 +883,17 @@ export default function SoundCanvas() {
                   className="intro-approach-beast absolute left-1/2 top-1/2 object-contain object-center opacity-100 w-auto max-w-[min(96vw,900px)]"
                   style={
                     {
-                      height: `${stackStage.h * a.stackHFrac * 1.3}px`,
+                      height: `${stackStage.h * a.stackHFrac * 0.9}px`,
                       zIndex: 30,
-                      '--fx': `${a.fx}px`,
-                      '--fy': `${a.fy}px`,
+                      // 로고와 겹침 회피: fx/fy 1.4× 푸시
+                      '--fx': `${a.fx * 1.4}px`,
+                      '--fy': `${a.fy * 1.4}px`,
                       '--fr': `${a.fr}deg`,
-                      '--fs': String(a.fs * 1.3),
+                      '--fs': String(a.fs * 0.9),
                       '--ox': `${a.ox}px`,
                       '--oy': `${a.oy}px`,
                       '--or': `${a.orDeg}deg`,
-                      '--os': String(a.os * 1.3),
+                      '--os': String(a.os * 0.9),
                       '--delay': `${120 + i * 110}ms`,
                     } as CSSProperties
                   }
@@ -925,13 +926,13 @@ export default function SoundCanvas() {
                       className="intro-stack-beast absolute left-1/2 top-1/2 object-contain object-center opacity-100 w-auto max-w-[min(96vw,900px)]"
                       style={
                         {
-                          height: `${stackStage.h * a.stackHFrac * 1.3}px`,
+                          height: `${stackStage.h * a.stackHFrac * 0.9}px`,
                           zIndex: 30,
-                          // step3 끝(1.3× approach 도착) → stack 진행하며 원본 사이즈(1.0×)로 축소
-                          '--fx': `${a.fx}px`,
-                          '--fy': `${a.fy}px`,
+                          // step3 끝(0.9× scale, 1.4× 푸시 위치) → stack 진행하며 원본 1.0×로 축소
+                          '--fx': `${a.fx * 1.4}px`,
+                          '--fy': `${a.fy * 1.4}px`,
                           '--fr': `${a.fr}deg`,
-                          '--fs': String(a.fs * 1.3),
+                          '--fs': String(a.fs * 0.9),
                           '--sx': `${sx}px`,
                           '--sy': `${sy}px`,
                           '--sr': `${a.sr}deg`,

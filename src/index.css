@@ -82,16 +82,16 @@
   --intro-oh-y: calc(1.5vh + 5px);
 }
 
-/* step1: 거대 OH!BREMEN — 화면 밖으로 잘려나가게 큼. step2 시작점과 매끈히 이어지도록 끝나는 scale 유지 (페이드 X) */
+/* step1: 거대 OH!BREMEN — 빠르고 매끄럽게 (걸림 없는 ease-out) */
 @keyframes introGiantOh {
   0%   { opacity: 0; transform: scale(0.5); }
-  25%  { opacity: 1; transform: scale(8); }
+  20%  { opacity: 1; transform: scale(2.5); }
   100% { opacity: 1; transform: scale(10); }
 }
 .intro-giant-oh {
   transform-origin: center center;
   will-change: transform, opacity;
-  animation: introGiantOh 1.6s cubic-bezier(0.18, 0.82, 0.32, 1) forwards;
+  animation: introGiantOh 1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 /* step2: giant scale 10에서 바운스로 scale 1로 복귀 (자연스러운 연결) */
