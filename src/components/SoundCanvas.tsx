@@ -357,24 +357,23 @@ export default function SoundCanvas() {
     // step2: 로고 아래→위 + 흔들림 (2.5s)
     // step3: 동물 버스트 (3.4s, 기존 approach)
     // step4: 정착 (1.4s, 로고+동물 축소 잔존)
-    // 타이밍 (step2/3 통합 stage, beasts가 바운스 끝나기 전 mount+delay로 진입 시작)
-    // stage mount 1000ms. 바운스 1.4s (1000-2400). beasts --delay 1000ms + 180ms 스태거
-    //   → 첫 beast 2000ms, 마지막 beast 2540ms에 approach 시작 (바운스 중 overlap)
-    // bounce-back → static logo 전환 2400ms, beasts 계속 진행
-    // step4(stack) 8200ms, mic 12400ms
+    // 타이밍 (step2/3 통합 stage, beasts가 바운스 초반부터 진입)
+    // stage mount 1000ms. 바운스 1.4s (1000-2400). beasts --delay 200ms + 180ms 스태거
+    //   → 첫 beast approach 시작 1200ms abs, reveal 2112ms abs (바운스 중)
+    //   → 마지막 beast approach 시작 1740ms abs
+    // step4(stack) 6800ms, mic 11000ms
     introTimersRef.current.push(window.setTimeout(() => setIntroStep(2), 1000));
     introTimersRef.current.push(window.setTimeout(() => setIntroStep(3), 2400));
-    // 동물 사운드 — 각 beast의 opacity reveal 지점(approach 19%)에 싱크
-    // beast approach 시작 = 2000 + i*180, 길이 4.8s, reveal at 19% ≈ 0.91s
     INTRO_BEAST_CONFIG.forEach((a, i) => {
-      const t = 2000 + i * 180 + 910;
+      // reveal at 19% of 4.8s ≈ 0.91s after beast's approach start (1200+i*180)
+      const t = 1200 + i * 180 + 910;
       introTimersRef.current.push(window.setTimeout(() => playBeastAudio(a.src), t));
     });
-    introTimersRef.current.push(window.setTimeout(() => setIntroStep(4), 8200));
+    introTimersRef.current.push(window.setTimeout(() => setIntroStep(4), 6800));
     introTimersRef.current.push(
       window.setTimeout(() => {
         void startMic();
-      }, 12400),
+      }, 11000),
     );
   }, [phase, clearIntroTimers, startMic, playBeastAudio]);
 
@@ -879,12 +878,13 @@ export default function SoundCanvas() {
                       '--fy': `${a.fy * 1.4}px`,
                       '--fr': `${a.fr}deg`,
                       '--fs': String(a.fs * 1.15),
-                      '--ox': `${a.ox}px`,
-                      '--oy': `${a.oy}px`,
+                      // ox/oy 0.4× 축소 — 화면 바로 바깥에서 시작, 바운스 중 화면 진입 가능
+                      '--ox': `${a.ox * 0.4}px`,
+                      '--oy': `${a.oy * 0.4}px`,
                       '--or': `${a.orDeg}deg`,
                       '--os': String(a.os * 1.15),
-                      // stage mount = step2 시작 시점. 바운스 1.4s + 약간의 오버랩을 위해 1000ms 후 approach 시작
-                      '--delay': `${1000 + i * 180}ms`,
+                      // stage mount(step2 시작) + 200ms에 approach 시작 → 바운스(~1400ms)와 충분히 겹침
+                      '--delay': `${200 + i * 180}ms`,
                     } as CSSProperties
                   }
                 />
