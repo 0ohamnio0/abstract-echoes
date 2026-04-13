@@ -650,11 +650,12 @@ export default function SoundCanvas() {
         width={CANVAS_WIDTH}
         height={CANVAS_HEIGHT}
         style={{
-          width: `min(100vw, ${((CANVAS_WIDTH / CANVAS_HEIGHT) * 100).toFixed(4)}vh)`,
-          height: 'auto',
-          aspectRatio: `${CANVAS_WIDTH} / ${CANVAS_HEIGHT}`,
+          width: '100vw',
+          height: '100vh',
+          display: 'block',
           imageRendering: 'auto',
           backgroundColor: '#393939',
+          objectFit: 'cover',
         }}
       />
 
@@ -835,7 +836,7 @@ export default function SoundCanvas() {
               <div className="absolute inset-0 bg-[#222]" aria-hidden />
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
-                  src="/oh_bremen.png"
+                  src="/by_oh_bremen_logo.svg"
                   alt=""
                   className="intro-giant-oh block h-auto w-auto max-h-[60vh] max-w-[80vw] object-contain"
                   style={{ filter: 'grayscale(1) contrast(1.2) brightness(1.15)' }}
@@ -851,7 +852,7 @@ export default function SoundCanvas() {
               <div className="absolute inset-0 bg-[#222]" aria-hidden />
               <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
-                  src="/oh_bremen.png"
+                  src="/by_oh_bremen_logo.svg"
                   alt=""
                   className="intro-rise-shake block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain"
                   style={{ filter: 'grayscale(1) contrast(1.2) brightness(1.1)' }}
@@ -867,7 +868,7 @@ export default function SoundCanvas() {
               <div className="absolute inset-0 bg-[#222]/95" aria-hidden />
               <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
-                  src="/oh_bremen.png"
+                  src="/by_oh_bremen_logo.svg"
                   alt=""
                   className="intro-oh-fadeout-pose block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain pointer-events-none"
                   style={{ filter: 'grayscale(1) contrast(1.2) brightness(1.1)', opacity: 0.95 }}
@@ -900,22 +901,21 @@ export default function SoundCanvas() {
             </>
           )}
 
-          {/* step 4: 정착 — 로고 작아져 하단으로 내려가고, 동물들 가로선 정렬 */}
+          {/* step 4: 정착 — 로고 작아져 잔존 + 불꽃(stack-2) + 가로선(stack-4) 2개만 */}
           {introStep === 4 && (
             <>
               <div className="absolute inset-0 bg-[#222]/90" aria-hidden />
               <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
-                  src="/oh_bremen.png"
+                  src="/by_oh_bremen_logo.svg"
                   alt=""
                   className="intro-logo-settle block h-auto max-h-[min(38vh,380px)] w-auto max-w-[min(62vw,640px)] object-contain"
-                  style={{ filter: 'grayscale(1) contrast(1.2) brightness(1.1)' }}
                   aria-hidden
                 />
               </div>
-              {INTRO_BEAST_CONFIG.map((a, i) => {
-                // 가로선 정렬: 4개 균등 분포
-                const lx = ((i - (INTRO_BEAST_CONFIG.length - 1) / 2) * 180);
+              {INTRO_BEAST_CONFIG.filter(a => a.src === '/intro-stack-2.svg' || a.src === '/intro-stack-4.svg').map((a, i) => {
+                // 두 잔존 요소: 불꽃(stack-2)은 좌측, 가로선(stack-4)은 우측
+                const lx = a.src === '/intro-stack-2.svg' ? -90 : 40;
                 return (
                   <img
                     key={`settle-${a.src}`}
@@ -925,7 +925,6 @@ export default function SoundCanvas() {
                     style={
                       {
                         height: `${stackStage.h * a.stackHFrac}px`,
-                        filter: 'grayscale(1) contrast(1.18) brightness(1.08)',
                         '--fx': `${a.fx}px`,
                         '--fy': `${a.fy}px`,
                         '--fr': `${a.fr}deg`,
