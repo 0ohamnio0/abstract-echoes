@@ -109,6 +109,12 @@ class SessionColorTracker {
   }
 }
 
+// ── 타임라인 상수 ─────────────────────────────────────────────────
+const SESSION_CAP_MS = 600_000;   // 10분 상한
+const LIVE_PORTION = 0.6;          // 화면 오른쪽 라이브 영역 비율 (최근 3초)
+const LIVE_WINDOW_MS = 3000;      // 라이브 영역에 매핑되는 최근 시간
+const DOWNSAMPLE_PER_FRAME = 8;   // 프레임당 누적 샘플 개수 (waveform에서 다운샘플)
+
 // ── 파라미터 기본값 ───────────────────────────────────────────────
 interface OscParams {
   lineCore?: number;         // 코어 스트로크 두께 (px)
@@ -145,6 +151,15 @@ export class GenerativeEngine {
   private volEnv = 0;                // 볼륨 엔벨로프 (0..1, attack/release 적용)
   private lastVoiceAt = -Infinity;   // 마지막 발화 시각 (ms)
 
+  // ── 세션 타임라인 (체험 화면 누적) ──
+  // 매 프레임 waveform을 DOWNSAMPLE_PER_FRAME개로 다운샘플해 raw amplitude 시계열로 누적.
+  // 왼쪽 40% = 세션 시작~3s전 압축 (decimate), 오른쪽 60% = 최근 3초 라이브. 둘 다 동일 가우시안+bloom.
+  // 10분 상한 도달 시 멈추고 안내 메시지 노출.
+  private sessionAmps: number[] = [];
+  private sessionFrameTimes: number[] = [];
+  private sessionStartMs = 0;
+  private sessionCapped = false;
+
   // 레거시 API 유지용 — 튜닝 패널이 채우는 자리
   public params: OscParams = {};
 
@@ -156,7 +171,7 @@ export class GenerativeEngine {
     this.trailCanvas.width = canvas.width;
     this.trailCanvas.height = canvas.height;
     this.trailCtx = this.trailCanvas.getContext('2d', { alpha: false })!;
-    this.trailCtx.fillStyle = '#2C2C2C';
+    this.trailCtx.fillStyle = '#000000';
     this.trailCtx.fillRect(0, 0, canvas.width, canvas.height);
 
     // 세로 월페이퍼: 처음엔 가로×세로 비율 기반, 실제 export는 getter에서 사이즈 조정
@@ -211,15 +226,101 @@ export class GenerativeEngine {
     if (f.isSpeaking) this.lastVoiceAt = now;
     if (this.volEnv > 0.02) this.paintPortraitLive();
 
-    // 세션 갭 넘으면 portrait 커서에 여백 주어 세션 간 시각 구분
+    // 세션 갭 넘으면 portrait 커서 여백 + 타임라인 종료
     if (this.sessionActive && now - this.lastVoiceAt > gapMs) {
       this.portraitCursorY += 24; // gap separator
       this.sessionActive = false;
     }
-    if (f.isSpeaking && !this.sessionActive) this.sessionActive = true;
+    // 새 세션 시작 — 타임라인 리셋
+    if (f.isSpeaking && !this.sessionActive) {
+      this.sessionActive = true;
+      this.sessionAmps = [];
+      this.sessionFrameTimes = [];
+      this.sessionStartMs = now;
+      this.sessionCapped = false;
+    }
+
+    // 세션 중 매 프레임 타임라인 append (침묵 <2s 구간도 평탄 샘플로 기록)
+    if (this.sessionActive && !this.sessionCapped) {
+      if (now - this.sessionStartMs >= SESSION_CAP_MS) {
+        this.sessionCapped = true;
+      } else {
+        const histLen = this.history.length;
+        for (let i = 0; i < DOWNSAMPLE_PER_FRAME; i++) {
+          const idx = Math.floor(((i + 0.5) * histLen) / DOWNSAMPLE_PER_FRAME);
+          this.sessionAmps.push(this.history[idx] ?? 0);
+        }
+        this.sessionFrameTimes.push(now);
+      }
+    }
 
     this.render(false);
   }
+
+  // listening 시 WebGL(woscope) 렌더러 사용 경로 — 타임라인만 갱신, Canvas 2D 렌더 스킵
+  updateTimelineOnly(f: AudioFeatures) {
+    this.time += 1 / 60;
+    const p = this.params;
+    const gapMs = p.sessionGapMs ?? 2000;
+    this.session.setGapMs(gapMs);
+
+    const now = performance.now();
+    this.session.feed(f, now);
+
+    const gain = p.waveformGain ?? 1.6;
+    const targetVol = f.isSpeaking ? Math.min(1, f.volume * 3) : 0;
+    const attack = 0.35, release = 0.08;
+    const k = targetVol > this.volEnv ? attack : release;
+    this.volEnv += (targetVol - this.volEnv) * k;
+
+    const w = f.waveform;
+    if (w && w.length > 0) {
+      const target = p.historyLen ?? 1024;
+      const snap = new Array<number>(target);
+      for (let i = 0; i < target; i++) {
+        const srcIdx = Math.floor((i * w.length) / target);
+        const v = (w[srcIdx] - 128) / 128;
+        snap[i] = Math.max(-1, Math.min(1, v * gain * this.volEnv));
+      }
+      this.history = snap;
+    }
+
+    if (f.isSpeaking) this.lastVoiceAt = now;
+    if (this.volEnv > 0.02) this.paintPortraitLive();
+
+    if (this.sessionActive && now - this.lastVoiceAt > gapMs) {
+      this.portraitCursorY += 24;
+      this.sessionActive = false;
+    }
+    if (f.isSpeaking && !this.sessionActive) {
+      this.sessionActive = true;
+      this.sessionAmps = [];
+      this.sessionFrameTimes = [];
+      this.sessionStartMs = now;
+      this.sessionCapped = false;
+    }
+
+    if (this.sessionActive && !this.sessionCapped) {
+      if (now - this.sessionStartMs >= SESSION_CAP_MS) {
+        this.sessionCapped = true;
+      } else {
+        const histLen = this.history.length;
+        for (let i = 0; i < DOWNSAMPLE_PER_FRAME; i++) {
+          const idx = Math.floor(((i + 0.5) * histLen) / DOWNSAMPLE_PER_FRAME);
+          this.sessionAmps.push(this.history[idx] ?? 0);
+        }
+        this.sessionFrameTimes.push(now);
+      }
+    }
+  }
+
+  // Woscope 렌더러가 샘플링하기 위한 getter
+  getSessionAmps(): number[] { return this.sessionAmps; }
+  getSessionFrameTimes(): number[] { return this.sessionFrameTimes; }
+  getSessionStartMs(): number { return this.sessionStartMs; }
+  getLivePortion(): number { return LIVE_PORTION; }
+  getLiveWindowMs(): number { return LIVE_WINDOW_MS; }
+  getDownsamplePerFrame(): number { return DOWNSAMPLE_PER_FRAME; }
 
   updateIdle() {
     this.time += 1 / 60;
@@ -240,16 +341,24 @@ export class GenerativeEngine {
 
   clear() {
     this.history = new Array(this.history.length).fill(0);
-    this.trailCtx.fillStyle = '#2C2C2C';
+    this.trailCtx.fillStyle = '#000000';
     this.trailCtx.fillRect(0, 0, this.trailCanvas.width, this.trailCanvas.height);
-    this.ctx.fillStyle = '#2C2C2C';
+    this.ctx.fillStyle = '#000000';
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     // portrait도 리셋
     this.portraitCtx.fillStyle = '#FFFFFF';
     this.portraitCtx.fillRect(0, 0, this.portraitBuffer.width, this.portraitBuffer.height);
     this.portraitCursorY = 40;
     this.sessionActive = false;
+    this.sessionAmps = [];
+    this.sessionFrameTimes = [];
+    this.sessionStartMs = 0;
+    this.sessionCapped = false;
     this.volEnv = 0;
+  }
+
+  isSessionCapped(): boolean {
+    return this.sessionCapped;
   }
 
   triggerSpecialEvent(_word: TriggerWord) {
@@ -263,11 +372,22 @@ export class GenerativeEngine {
     const W = this.trailCanvas.width;
     const H = this.trailCanvas.height;
 
-    // 잔상 페이드 — decay 비율만큼 배경색으로 덮기
+    if (isIdle) {
+      this.renderIdleWave(ctx, W, H);
+    } else {
+      this.renderSessionTimeline(ctx, W, H);
+    }
+
+    // 체험 화면으로 복사
+    this.ctx.drawImage(this.trailCanvas, 0, 0, this.canvas.width, this.canvas.height);
+  }
+
+  // idle: 기존 bloom 웨이브 (history 풀 스캔)
+  private renderIdleWave(ctx: CanvasRenderingContext2D, W: number, H: number) {
     const decay = this.params.trailDecay ?? 0.22;
     ctx.save();
     ctx.globalAlpha = decay;
-    ctx.fillStyle = '#2C2C2C';
+    ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
 
@@ -275,16 +395,13 @@ export class GenerativeEngine {
     const core = this.params.lineCore ?? 1.5;
     const bloomBase = this.params.bloomIntensity ?? 16;
     const passes = Math.max(1, Math.min(4, Math.floor(this.params.bloomPasses ?? 3)));
-
     const midY = H / 2;
     const len = this.history.length;
     const step = W / len;
 
-    // 블룸 레이어 (큰 blur + 낮은 알파부터 쌓고, 마지막에 코어)
     for (let pass = passes; pass >= 0; pass--) {
       ctx.save();
       if (pass === 0) {
-        // 코어: 얇고 밝은 스트로크 (거의 흰색에 가까운 라이트 색)
         ctx.strokeStyle = `hsl(${h}, ${Math.min(100, s + 10)}%, ${Math.min(95, l + 30)}%)`;
         ctx.lineWidth = core;
         ctx.shadowColor = `hsl(${h}, ${s}%, ${l}%)`;
@@ -295,15 +412,14 @@ export class GenerativeEngine {
         ctx.lineWidth = core + pass * 1.2;
         ctx.shadowColor = `hsl(${h}, ${s}%, ${l}%)`;
         ctx.shadowBlur = bloomBase * pass;
-        ctx.globalAlpha = isIdle ? 0.25 : 0.4 / pass;
+        ctx.globalAlpha = 0.25;
       }
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.beginPath();
-      // 가우시안 7탭 커널 (1,6,15,20,15,6,1 / 64) + 인접 중점 경유 quadratic
       const smooth = (i: number) => {
-        const h = this.history;
-        const g = (off: number) => h[Math.max(0, Math.min(len - 1, i + off))];
+        const hist = this.history;
+        const g = (off: number) => hist[Math.max(0, Math.min(len - 1, i + off))];
         return (g(-3) + g(3)) * (1 / 64)
              + (g(-2) + g(2)) * (6 / 64)
              + (g(-1) + g(1)) * (15 / 64)
@@ -324,9 +440,131 @@ export class GenerativeEngine {
       ctx.stroke();
       ctx.restore();
     }
+  }
 
-    // 체험 화면으로 복사
-    this.ctx.drawImage(this.trailCanvas, 0, 0, this.canvas.width, this.canvas.height);
+  // listening: 왼쪽 40%(과거) + 오른쪽 60%(최근 3초). 두 영역 모두 가우시안+bloom wiggle 렌더.
+  private renderSessionTimeline(ctx: CanvasRenderingContext2D, W: number, H: number) {
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, W, H);
+
+    const amps = this.sessionAmps;
+    if (amps.length === 0) return;
+
+    const midY = H / 2;
+    const ampScale = H * 0.38;
+    const now = performance.now();
+    const liveW = Math.max(1, Math.round(W * LIVE_PORTION));
+    const pastW = Math.max(0, W - liveW);
+    const liveCutoff = now - LIVE_WINDOW_MS;
+
+    // liveCutoff 이후 첫 frame index → sample split
+    const frameTimes = this.sessionFrameTimes;
+    let splitFrame = frameTimes.length;
+    for (let i = 0; i < frameTimes.length; i++) {
+      if (frameTimes[i] >= liveCutoff) { splitFrame = i; break; }
+    }
+    const splitSample = Math.min(amps.length, splitFrame * DOWNSAMPLE_PER_FRAME);
+
+    if (pastW > 0 && splitSample > 0) {
+      this.paintWaveRegion(ctx, amps, 0, splitSample, 0, pastW, midY, ampScale);
+    }
+    if (splitSample < amps.length) {
+      this.paintWaveRegion(ctx, amps, splitSample, amps.length, pastW, liveW, midY, ampScale);
+    }
+  }
+
+  // bucket별 min-max pair → 가우시안 7탭 스무스 → bloom pass로 상하 envelope 두 path 그리기
+  private paintWaveRegion(
+    ctx: CanvasRenderingContext2D,
+    amps: number[],
+    sStart: number,
+    sEnd: number,
+    xOff: number,
+    regionW: number,
+    midY: number,
+    ampScale: number,
+  ) {
+    const n = sEnd - sStart;
+    if (n <= 0 || regionW <= 0) return;
+
+    // pixel당 최대 2 pt. 샘플 수가 더 많으면 bucket별 min/max 추출
+    const targetPts = Math.max(2, Math.min(n, regionW * 2));
+    const ptsMax = new Array<number>(targetPts);
+    const ptsMin = new Array<number>(targetPts);
+    if (targetPts === n) {
+      for (let i = 0; i < n; i++) {
+        ptsMax[i] = amps[sStart + i];
+        ptsMin[i] = amps[sStart + i];
+      }
+    } else {
+      for (let i = 0; i < targetPts; i++) {
+        const from = sStart + Math.floor((i * n) / targetPts);
+        const to = sStart + Math.max(from + 1, Math.floor(((i + 1) * n) / targetPts));
+        let vmax = amps[from], vmin = amps[from];
+        for (let j = from + 1; j < to; j++) {
+          const v = amps[j];
+          if (v > vmax) vmax = v;
+          if (v < vmin) vmin = v;
+        }
+        ptsMax[i] = vmax;
+        ptsMin[i] = vmin;
+      }
+    }
+
+    const [h, s, l] = this.session.getHsl();
+    const core = this.params.lineCore ?? 1.5;
+    const bloomBase = this.params.bloomIntensity ?? 16;
+    const passes = Math.max(1, Math.min(4, Math.floor(this.params.bloomPasses ?? 3)));
+    const step = regionW / targetPts;
+
+    const smoothAt = (arr: number[], i: number) => {
+      const g = (off: number) => arr[Math.max(0, Math.min(targetPts - 1, i + off))];
+      return (g(-3) + g(3)) * (1 / 64)
+           + (g(-2) + g(2)) * (6 / 64)
+           + (g(-1) + g(1)) * (15 / 64)
+           +  g(0)          * (20 / 64);
+    };
+    const strokeEnvelope = (arr: number[]) => {
+      ctx.beginPath();
+      const ptX = (i: number) => xOff + i * step;
+      const ptY = (i: number) => midY - smoothAt(arr, i) * ampScale;
+      let px = ptX(0), py = ptY(0);
+      ctx.moveTo(px, py);
+      for (let i = 1; i < targetPts - 1; i++) {
+        const cx = ptX(i), cy = ptY(i);
+        const mx = (px + cx) / 2, my = (py + cy) / 2;
+        ctx.quadraticCurveTo(px, py, mx, my);
+        px = cx; py = cy;
+      }
+      const lx = ptX(targetPts - 1), ly = ptY(targetPts - 1);
+      ctx.quadraticCurveTo(px, py, lx, ly);
+      ctx.stroke();
+    };
+
+    for (let pass = passes; pass >= 0; pass--) {
+      ctx.save();
+      // dood.al/woscope 룩: phosphor additive blend — 겹치면 밝아짐
+      ctx.globalCompositeOperation = 'lighter';
+      if (pass === 0) {
+        // 코어: 매우 얇고 밝은 스트로크 (CRT 빔 중심)
+        ctx.strokeStyle = `hsl(${h}, ${Math.min(100, s + 10)}%, ${Math.min(95, l + 35)}%)`;
+        ctx.lineWidth = core;
+        ctx.shadowColor = `hsl(${h}, ${s}%, ${l}%)`;
+        ctx.shadowBlur = bloomBase * 0.5;
+        ctx.globalAlpha = 1;
+      } else {
+        ctx.strokeStyle = `hsl(${h}, ${s}%, ${l}%)`;
+        ctx.lineWidth = core + pass * 1.4;
+        ctx.shadowColor = `hsl(${h}, ${s}%, ${l}%)`;
+        ctx.shadowBlur = bloomBase * pass * 1.2;
+        ctx.globalAlpha = 0.35 / pass;
+      }
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      strokeEnvelope(ptsMax);
+      strokeEnvelope(ptsMin);
+      ctx.restore();
+    }
   }
 
   // ── 세로 월페이퍼 라이브 누적 ──

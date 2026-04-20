@@ -139,15 +139,19 @@
   animation-delay: var(--delay, 0ms);
 }
 
-/* step4 정착: 로고가 작아지며 화면 하단으로 (잔존), 동물 요소들은 가로선 형태로 정렬 */
+/* step4 정착: 로고가 작아지며 화면 하단으로 — 소리요소 스톱모션 스택과 동일한 stepped 리듬으로 합류 */
 @keyframes introLogoSettle {
-  0%   { opacity: 1; transform: translateY(0) scale(1); }
-  100% { opacity: 0.95; transform: translateY(36vh) scale(0.32); }
+  0%, 10%   { opacity: 1; transform: translateY(0) scale(1); }
+  11%, 24%  { transform: translateY(5vh) scale(0.67); }
+  25%, 38%  { transform: translateY(10vh) scale(0.58); }
+  39%, 52%  { transform: translateY(16vh) scale(0.506); }
+  53%, 66%  { transform: translateY(22vh) scale(0.447); }
+  67%, 100% { opacity: 0.95; transform: translateY(35vh) scale(0.41); }
 }
 .intro-logo-settle {
   transform-origin: center center;
   will-change: transform, opacity;
-  animation: introLogoSettle 4.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: introLogoSettle 4.3s linear forwards;
 }
 
 @keyframes introBeastSettle {
@@ -207,6 +211,14 @@
 }
 .intro-oh-fadeout {
   animation: introOhFadeout 0.72s ease-out forwards;
+}
+
+/* 소리요소(beast) 공통 톤: 컬러 편차 제거용 정규화 필터 */
+.intro-approach-beast,
+.intro-stack-beast,
+.intro-beast-burst,
+.intro-beast-settle {
+  filter: grayscale(1) contrast(1.15) brightness(1.1);
 }
 
 /* 스톱모션: 긴 홀드 + 짧은 구간만 위치 변경 (linear로 구간 사이가 뚝 끊김) */

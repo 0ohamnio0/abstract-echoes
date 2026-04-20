@@ -23,9 +23,9 @@ export interface TuningParams {
 
 export function createDefaultParams(): TuningParams {
   return {
-    lineCore:       { value: 1.5,  min: 0.5, max: 6,    step: 0.1,  label: '코어 라인 두께 (px)' },
-    bloomPasses:    { value: 3,    min: 1,   max: 4,    step: 1,    label: '블룸 레이어 수' },
-    bloomIntensity: { value: 16,   min: 2,   max: 48,   step: 1,    label: '블룸 강도 (shadowBlur)' },
+    lineCore:       { value: 1.0,  min: 0.5, max: 6,    step: 0.1,  label: '코어 라인 두께 (px)' },
+    bloomPasses:    { value: 4,    min: 1,   max: 4,    step: 1,    label: '블룸 레이어 수' },
+    bloomIntensity: { value: 26,   min: 2,   max: 64,   step: 1,    label: '블룸 강도 (shadowBlur)' },
     waveformGain:   { value: 1.6,  min: 0.2, max: 4,    step: 0.1,  label: '진폭 배율' },
     sessionGapMs:   { value: 2000, min: 500, max: 6000, step: 100,  label: '세션 경계 갭 (ms)' },
     historyLen:     { value: 1024, min: 256, max: 2048, step: 64,   label: '히스토리 샘플 수' },

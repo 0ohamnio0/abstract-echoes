@@ -2,10 +2,12 @@ import { useRef, useEffect, useLayoutEffect, useState, useCallback, type CSSProp
 import { createNoise3D } from 'simplex-noise';
 import { QRCodeSVG } from 'qrcode.react';
 import { AudioAnalyzer, SoundType } from '@/lib/audioAnalyzer';
-import { GenerativeEngine, type PalettePreset } from '@/lib/generativeEngine';
+import { GenerativeEngine } from '@/lib/generativeEngine';
+import { Oscilloscope, waveformFloatToXY } from '@/lib/oscilloscope';
 import { createDefaultParams, extractValues, TuningParams, ParamDef } from '@/lib/tuningParams';
 import { SpeechTrigger, TriggerWord } from '@/lib/speechTrigger';
 import TuningPanel from './TuningPanel';
+import OscilloscopePanel, { type SignalGenSettings } from './OscilloscopePanel';
 
 const IMGBB_API_KEY = '807140906d6d0c3c9a3b83ec99c22d74';
 const QR_VIEWER_BASE = 'https://exquisite-twilight-5847a3.netlify.app';
@@ -55,6 +57,10 @@ function saveParams(params: TuningParams) {
 const CANVAS_WIDTH = 1720;
 const CANVAS_HEIGHT = 1302;
 
+// 설치 기준 해상도 — WebGL drawingBuffer 고정, CSS로 display stretch
+const GL_RENDER_WIDTH = 1720;
+const GL_RENDER_HEIGHT = 1032;
+
 const ASSET6_VB = { w: 873.1, h: 601.8 } as const;
 
 type StackStage = { w: number; h: number; scale: number };
@@ -87,7 +93,7 @@ const INTRO_BEAST_CONFIG = [
     src: '/intro-stack-2.svg',
     stackHFrac: 89.2 / ASSET6_VB.h,
     stackCx: ASSET6_CX,
-    stackCy: 160,
+    stackCy: 164,
     fx: -480,
     fy: -150,
     fr: -10,
@@ -104,7 +110,7 @@ const INTRO_BEAST_CONFIG = [
     src: '/intro-stack-4.svg',
     stackHFrac: 83.1 / ASSET6_VB.h,
     stackCx: ASSET6_CX,
-    stackCy: 436,
+    stackCy: 421,
     fx: 420,
     fy: -130,
     fr: 9,
@@ -121,7 +127,7 @@ const INTRO_BEAST_CONFIG = [
     src: '/intro-stack-3.svg',
     stackHFrac: 83 / ASSET6_VB.h,
     stackCx: ASSET6_CX,
-    stackCy: 350,
+    stackCy: 335,
     fx: -400,
     fy: 200,
     fr: 7,
@@ -138,7 +144,7 @@ const INTRO_BEAST_CONFIG = [
     src: '/intro-stack-1.svg',
     stackHFrac: 85.4 / ASSET6_VB.h,
     stackCx: ASSET6_CX,
-    stackCy: 260,
+    stackCy: 251,
     fx: 400,
     fy: 235,
     fr: -8,
@@ -165,6 +171,8 @@ const BEAST_AUDIO: Record<string, string> = {
 
 export default function SoundCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasGLRef = useRef<HTMLCanvasElement>(null);
+  const oscilloscopeRef = useRef<Oscilloscope | null>(null);
   const analyzerRef = useRef<AudioAnalyzer | null>(null);
   const engineRef = useRef<GenerativeEngine | null>(null);
   const speechRef = useRef<SpeechTrigger | null>(null);
@@ -214,9 +222,6 @@ export default function SoundCanvas() {
   const [showTuning, setShowTuning] = useState(false);
   const [isKioskMode, setIsKioskMode] = useState(false);
   const [modeIndicator, setModeIndicator] = useState(false);
-  const [palette, setPalette] = useState<PalettePreset>('default');
-  const [paletteIndicator, setPaletteIndicator] = useState<string | null>(null);
-  const paletteIndicatorTimerRef = useRef<number>(0);
   const [tuningParams, setTuningParams] = useState<TuningParams>(loadParams);
   const [triggerDisplay, setTriggerDisplay] = useState<{ word: TriggerWord; text: string } | null>(null);
   const triggerTimerRef = useRef<number>(0);
@@ -231,6 +236,27 @@ export default function SoundCanvas() {
   const qrTimerRef = useRef<number>(0);
 
   const [showDebugUI, setShowDebugUI] = useState(false);
+  const [sessionCapped, setSessionCapped] = useState(false);
+  const [showOscPanel, setShowOscPanel] = useState(false);
+  const [oscPreAmp, setOscPreAmp] = useState(1);
+  const [oscSwapXY, setOscSwapXY] = useState(false);
+  const [oscFreeze, setOscFreeze] = useState(false);
+  const [oscHue, setOscHue] = useState(125);
+  const [oscSigGen, setOscSigGen] = useState<SignalGenSettings>({
+    enabled: false,
+    xExpr: 'sin(2*PI*a*t)*cos(2*PI*b*t)',
+    yExpr: 'cos(2*PI*a*t)*cos(2*PI*b*t)',
+    aValue: 1,
+    aExp: 0,
+    bValue: 1,
+    bExp: 0,
+  });
+  const oscPreAmpRef = useRef(8);
+  const oscSwapXYRef = useRef(false);
+  const oscFreezeRef = useRef(false);
+  const oscSigGenRef = useRef<SignalGenSettings>(oscSigGen);
+  const sigGenFnRef = useRef<{ fx: Function; fy: Function } | null>(null);
+  const sigGenTRef = useRef(0);
 
   useLayoutEffect(() => {
     function update() {
@@ -240,6 +266,22 @@ export default function SoundCanvas() {
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
   }, []);
+
+  useEffect(() => { oscPreAmpRef.current = oscPreAmp; }, [oscPreAmp]);
+  useEffect(() => { oscSwapXYRef.current = oscSwapXY; }, [oscSwapXY]);
+  useEffect(() => { oscFreezeRef.current = oscFreeze; }, [oscFreeze]);
+  useEffect(() => {
+    oscSigGenRef.current = oscSigGen;
+    try {
+      // eslint-disable-next-line no-new-func
+      const fx = new Function('PI', 'sin', 'cos', 'tan', 'abs', 'sqrt', 'a', 'b', 't', `return ${oscSigGen.xExpr};`);
+      // eslint-disable-next-line no-new-func
+      const fy = new Function('PI', 'sin', 'cos', 'tan', 'abs', 'sqrt', 'a', 'b', 't', `return ${oscSigGen.yExpr};`);
+      sigGenFnRef.current = { fx, fy };
+    } catch {
+      sigGenFnRef.current = null;
+    }
+  }, [oscSigGen]);
 
   const clearIntroTimers = useCallback(() => {
     for (const t of introTimersRef.current) window.clearTimeout(t);
@@ -266,7 +308,44 @@ export default function SoundCanvas() {
   const loop = useCallback(() => {
     if (!analyzerRef.current || !engineRef.current) return;
     const features = analyzerRef.current.getFeatures();
-    engineRef.current.update(features);
+    const engine = engineRef.current;
+
+    // listening 시엔 Canvas 2D 렌더 스킵, 타임라인 누적만 (월페이퍼용) + dood.al 실시간 렌더
+    if (oscilloscopeRef.current) {
+      engine.updateTimelineOnly(features);
+      if (!oscFreezeRef.current) {
+        const sig = oscSigGenRef.current;
+        if (sig.enabled && sigGenFnRef.current) {
+          // SIGNAL GENERATOR path — 수식 기반 리사주
+          const nSamples = 1024;
+          const x = new Float32Array(nSamples);
+          const y = new Float32Array(nSamples);
+          const a = sig.aValue * Math.pow(10, sig.aExp);
+          const b = sig.bValue * Math.pow(10, sig.bExp);
+          const { fx, fy } = sigGenFnRef.current;
+          sigGenTRef.current += 1 / 60;
+          const tBase = sigGenTRef.current;
+          for (let i = 0; i < nSamples; i++) {
+            const t = tBase + i / nSamples / 60;
+            try {
+              x[i] = fx(Math.PI, Math.sin, Math.cos, Math.tan, Math.abs, Math.sqrt, a, b, t);
+              y[i] = fy(Math.PI, Math.sin, Math.cos, Math.tan, Math.abs, Math.sqrt, a, b, t);
+            } catch {
+              x[i] = 0; y[i] = 0;
+            }
+          }
+          if (oscSwapXYRef.current) oscilloscopeRef.current.render(y, x);
+          else oscilloscopeRef.current.render(x, y);
+        } else if (features.waveformFloat && features.waveformFloat.length > 0) {
+          // MIC path — Float precision (256단계 양자화 없는 연속 값)
+          const { x, y } = waveformFloatToXY(features.waveformFloat, oscPreAmpRef.current);
+          if (oscSwapXYRef.current) oscilloscopeRef.current.render(y, x);
+          else oscilloscopeRef.current.render(x, y);
+        }
+      }
+    } else {
+      engine.update(features);
+    }
 
     debugFrameRef.current++;
     if (debugFrameRef.current % 5 === 0) {
@@ -275,6 +354,7 @@ export default function SoundCanvas() {
       setDebugSoundType(features.soundType);
       setYamnetLabel(features.yamnetLabel || '');
       setYamnetConfidence(features.yamnetConfidence || 0);
+      setSessionCapped(engine.isSessionCapped());
     }
 
     animFrameRef.current = requestAnimationFrame(loop);
@@ -294,8 +374,26 @@ export default function SoundCanvas() {
       const engine = new GenerativeEngine(canvasRef.current);
       engine.params = extractValues(tuningParams);
       engine.setIdleMode(false);
-      engine.setPalette(palette);
       engineRef.current = engine;
+
+      // dood.al Oscilloscope (WebGL) listening 렌더러 초기화
+      // drawingBuffer는 설치 기준 해상도(1720×1032)로 고정 — CSS가 화면 크기로 stretch
+      if (canvasGLRef.current) {
+        try {
+          const glCanvas = canvasGLRef.current;
+          glCanvas.width = GL_RENDER_WIDTH;
+          glCanvas.height = GL_RENDER_HEIGHT;
+          const osc = new Oscilloscope(glCanvas);
+          osc.resize(GL_RENDER_WIDTH, GL_RENDER_HEIGHT);
+          oscilloscopeRef.current = osc;
+        } catch (err) {
+          console.error('Oscilloscope init failed:', err);
+          oscilloscopeRef.current = null;
+        }
+      }
+
+      // 사이클 시작 시 유저 색 랜덤 배정 (체험 한 사이클 = 한 유저)
+      setOscHue(Math.floor(Math.random() * 360));
 
       const speech = new SpeechTrigger(event => {
         engineRef.current?.triggerSpecialEvent(event.word);
@@ -339,6 +437,9 @@ export default function SoundCanvas() {
     clearIntroTimers();
     engineRef.current?.clear();
     engineRef.current = null; // Will be recreated by idle effect
+    oscilloscopeRef.current?.dispose();
+    oscilloscopeRef.current = null;
+    setSessionCapped(false);
     setPhase('idle');
   }, [clearIntroTimers]);
 
@@ -467,6 +568,15 @@ export default function SoundCanvas() {
         modeIndicatorTimerRef.current = window.setTimeout(() => setModeIndicator(false), 2000);
         return;
       }
+      // O key: 오실로스코프 튜닝 패널 토글 (listening 중에만)
+      if (e.code === 'KeyO' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+        if ((e.target as HTMLElement).tagName === 'INPUT') return;
+        if (phase === 'listening') {
+          e.preventDefault();
+          setShowOscPanel(prev => !prev);
+        }
+        return;
+      }
       // B key: idle → start experience / listening → QR share / QR showing → reset
       if ((e.code === 'KeyB' && !e.ctrlKey && !e.shiftKey && !e.altKey)) {
         if ((e.target as HTMLElement).tagName === 'INPUT') return;
@@ -489,21 +599,7 @@ export default function SoundCanvas() {
         if (phase === 'listening') stopMic();
         return;
       }
-      // M key: toggle palette (default ⇄ adult)
-      if (e.code === 'KeyM' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
-        if ((e.target as HTMLElement).tagName === 'INPUT') return;
-        e.preventDefault();
-        setPalette(prev => {
-          const next: PalettePreset = prev === 'default' ? 'adult' : 'default';
-          engineRef.current?.setPalette(next);
-          setPaletteIndicator(next === 'adult' ? 'ADULT (4-key)' : 'DEFAULT (5-band)');
-          clearTimeout(paletteIndicatorTimerRef.current);
-          paletteIndicatorTimerRef.current = window.setTimeout(() => setPaletteIndicator(null), 1800);
-          return next;
-        });
-        return;
-      }
-      // Q key: toggle debug UI
+// Q key: toggle debug UI
       if (e.code === 'KeyQ' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
         if ((e.target as HTMLElement).tagName === 'INPUT') return;
         e.preventDefault();
@@ -545,7 +641,7 @@ export default function SoundCanvas() {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.fillStyle = '#393939';
+    ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }, [phase]);
 
@@ -586,12 +682,15 @@ export default function SoundCanvas() {
         if (!svg) return;
         svg.removeAttribute('width');
         svg.removeAttribute('height');
-        svg.style.maxWidth = '80vw';
-        svg.style.maxHeight = '80vh';
+        svg.style.maxWidth = '72vw';
+        svg.style.maxHeight = '75vh';
 
-        const allGroups = svg.querySelectorAll('g');
+        // Animate every <path>/<polygon> directly — group structure in title.svg
+        // is inconsistent (AI export quirk), so per-shape targeting ensures every
+        // glyph moves including B/A of BACKYARD that were siblings-without-group.
+        const allShapes = svg.querySelectorAll('path, polygon');
         const groups: Array<{
-          el: SVGGElement;
+          el: SVGGraphicsElement;
           cx: number;
           cy: number;
           seedX: number;
@@ -599,14 +698,11 @@ export default function SoundCanvas() {
           seedR: number;
         }> = [];
         let idx = 0;
-        allGroups.forEach(g => {
-          const gg = g as SVGGElement;
-          const hasPath = gg.querySelector(':scope > path, :scope > polygon');
-          const hasChildG = gg.querySelector(':scope > g');
-          if (!hasPath || hasChildG) return;
+        allShapes.forEach(s => {
+          const el = s as SVGGraphicsElement;
           let bbox: DOMRect | null = null;
           try {
-            bbox = gg.getBBox();
+            bbox = el.getBBox();
           } catch {
             bbox = null;
           }
@@ -614,7 +710,7 @@ export default function SoundCanvas() {
           const cx = bbox.x + bbox.width / 2;
           const cy = bbox.y + bbox.height / 2;
           groups.push({
-            el: gg,
+            el,
             cx,
             cy,
             seedX: idx * 7.13,
@@ -653,7 +749,7 @@ export default function SoundCanvas() {
 
   return (
     <div
-      className={`relative flex items-center justify-center w-screen h-screen bg-background overflow-hidden${isKioskMode ? ' cursor-none' : ''}`}
+      className={`relative flex items-center justify-center w-screen h-screen bg-black overflow-hidden${isKioskMode ? ' cursor-none' : ''}`}
     >
       <canvas
         ref={canvasRef}
@@ -662,10 +758,21 @@ export default function SoundCanvas() {
         style={{
           width: '100vw',
           height: '100vh',
-          display: 'block',
+          display: phase === 'listening' ? 'none' : 'block',
           imageRendering: 'auto',
-          backgroundColor: '#393939',
+          backgroundColor: '#000000',
           objectFit: 'cover',
+        }}
+      />
+      <canvas
+        ref={canvasGLRef}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100vw',
+          height: '100vh',
+          display: phase === 'listening' ? 'block' : 'none',
+          backgroundColor: '#000000',
         }}
       />
 
@@ -804,7 +911,7 @@ export default function SoundCanvas() {
               alignItems: 'center',
               justifyContent: 'center',
               filter: 'grayscale(1) contrast(1.15) brightness(1.08)',
-              transform: 'translateY(-56px) scale(0.78)',
+              transform: 'translateY(-77px) scale(0.83)',
             }}
           />
         </div>
@@ -831,10 +938,10 @@ export default function SoundCanvas() {
           <img
             src="/floor_pad_hint_text.svg"
             alt=""
-            className="h-[45px] w-auto max-w-[90vw] opacity-90"
-            style={{ animation: 'bremenHintFlicker 2.4s infinite linear', transform: 'translateY(-40px)' }}
+            className="h-[25px] w-auto max-w-[90vw] opacity-90"
+            style={{ animation: 'bremenHintFlicker 2.4s infinite linear', transform: 'translateY(-20px)' }}
           />
-          <img src="/oh_bremen_logo.svg" alt="" className="h-[55px] w-auto max-w-[90vw] opacity-90" />
+          <img src="/by_oh_bremen_logo.svg" alt="" className="h-[96px] w-auto max-w-[90vw] opacity-90" />
         </div>
       )}
 
@@ -845,7 +952,7 @@ export default function SoundCanvas() {
           {/* step 1: 거대 OH!BREMEN 크롭인 */}
           {introStep === 1 && (
             <>
-              <div className="absolute inset-0 bg-[#222]" aria-hidden />
+              <div className="absolute inset-0 bg-black" aria-hidden />
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
                   src="/oh_bremen_logo.svg"
@@ -862,7 +969,7 @@ export default function SoundCanvas() {
               beasts는 stage mount 시점에서 animation-delay로 약간 지연 — step2 바운스가 끝나기 전에 진입 시작 */}
           {(introStep === 2 || introStep === 3) && (
             <>
-              <div className="absolute inset-0 bg-[#222]" aria-hidden />
+              <div className="absolute inset-0 bg-black" aria-hidden />
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
                   src="/oh_bremen_logo.svg"
@@ -889,8 +996,8 @@ export default function SoundCanvas() {
                       {
                         height: `${stackStage.h * a.stackHFrac * 1.15}px`,
                         zIndex: 30,
-                        '--fx': `${symFx * 1.4}px`,
-                        '--fy': `${symFy * 1.4}px`,
+                        '--fx': `${symFx * 1.1}px`,
+                        '--fy': `${symFy * 1.1}px`,
                         '--fr': `${a.fr}deg`,
                         '--fs': String(a.fs * 1.15),
                         '--ox': `${a.ox * 0.4}px`,
@@ -909,7 +1016,7 @@ export default function SoundCanvas() {
           {/* step 4: 스톱모션 스택 (원본 introStackBeast) + 로고 정착 */}
           {introStep === 4 && (
             <>
-              <div className="absolute inset-0 bg-[#222]" aria-hidden />
+              <div className="absolute inset-0 bg-black" aria-hidden />
               <div className="intro-oh-center-wrap absolute inset-0 flex items-center justify-center pointer-events-none">
                 <img
                   src="/oh_bremen_logo.svg"
@@ -921,13 +1028,18 @@ export default function SoundCanvas() {
               {[...INTRO_BEAST_CONFIG]
                 .sort((x, y) => y.stackCy - x.stackCy)
                 .map(a => {
-                  const { sx, sy } = stackOffsetPx(a.stackCx, a.stackCy, stackStage);
+                  const STACK_Y_SHIFT_VH = -8;
+                  const STACK_SPREAD = 1.22;
+                  const stackYShiftPx = (window.innerHeight * STACK_Y_SHIFT_VH) / 100;
+                  const raw = stackOffsetPx(a.stackCx, a.stackCy, stackStage);
+                  const sx = raw.sx * STACK_SPREAD;
+                  const sy = raw.sy * STACK_SPREAD + stackYShiftPx;
                   // step3 대칭 좌표와 일치 (점프 방지)
                   const isTop = a.fy < 0;
                   const isLeft = a.fx < 0;
                   const SYM_X = 460, SYM_Y = 200;
-                  const symFx = (isLeft ? -SYM_X : SYM_X) * 1.4;
-                  const symFy = (isTop ? -SYM_Y : SYM_Y) * 1.4;
+                  const symFx = (isLeft ? -SYM_X : SYM_X) * 1.1;
+                  const symFy = (isTop ? -SYM_Y : SYM_Y) * 1.1;
                   return (
                     <img
                       key={`stack-${a.src}`}
@@ -957,12 +1069,38 @@ export default function SoundCanvas() {
         </div>
       )}
 
+      {phase === 'listening' && !isKioskMode && (
+        <OscilloscopePanel
+          oscilloscope={oscilloscopeRef.current}
+          visible={showOscPanel}
+          onClose={() => setShowOscPanel(false)}
+          preAmp={oscPreAmp}
+          onPreAmpChange={setOscPreAmp}
+          swapXY={oscSwapXY}
+          onSwapXYChange={setOscSwapXY}
+          freeze={oscFreeze}
+          onFreezeChange={setOscFreeze}
+          sigGen={oscSigGen}
+          onSigGenChange={setOscSigGen}
+          hue={oscHue}
+          onHueChange={setOscHue}
+        />
+      )}
+
       {phase === 'listening' && (
         <div className="absolute inset-0 pointer-events-none z-20">
-          <div className="absolute bottom-14 left-1/2 -translate-x-1/2 text-center px-8">
-            <div className="text-[18px] font-light tracking-[0.2em] text-foreground/90 text-glow">너의 목소리를 들려줘</div>
-            <div className="text-[12px] text-muted-foreground/70 tracking-[0.25em] mt-1">Let me hear your voice</div>
-          </div>
+          {sessionCapped ? (
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center px-8">
+              <div className="text-[22px] font-light tracking-[0.2em] text-foreground/90 text-glow">세션이 가득 찼어요</div>
+              <div className="text-[13px] text-muted-foreground/70 tracking-[0.25em] mt-2">잠시 쉬었다가 다시 들려주세요</div>
+              <div className="text-[11px] text-muted-foreground/50 tracking-[0.25em] mt-1">Session full — take a breath, then speak again</div>
+            </div>
+          ) : (
+            <div className="absolute bottom-14 left-1/2 -translate-x-1/2 text-center px-8">
+              <div className="text-[18px] font-light tracking-[0.2em] text-foreground/90 text-glow">너의 목소리를 들려줘</div>
+              <div className="text-[12px] text-muted-foreground/70 tracking-[0.25em] mt-1">Let me hear your voice</div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1007,13 +1145,7 @@ export default function SoundCanvas() {
         </div>
       )}
 
-      {paletteIndicator && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-2 bg-card/80 backdrop-blur border border-border rounded-full text-xs tracking-widest uppercase text-muted-foreground animate-in fade-in duration-200">
-          🎨 {paletteIndicator}
-        </div>
-      )}
-
-      {/* QR share overlay */}
+{/* QR share overlay */}
       {(isUploading || qrData) && (
         <div className="absolute bottom-6 right-6 z-50">
           {isUploading ? (

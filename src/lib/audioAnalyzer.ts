@@ -9,6 +9,7 @@ export interface AudioFeatures {
   treble: number;
   frequencies: Uint8Array;
   waveform: Uint8Array;
+  waveformFloat: Float32Array;
   pitch: number;
   isSpeaking: boolean;
   soundType: SoundType;
@@ -25,6 +26,7 @@ export class AudioAnalyzer {
   private stream: MediaStream | null = null;
   private frequencyData: Uint8Array = new Uint8Array(0);
   private waveformData: Uint8Array = new Uint8Array(0);
+  private waveformFloat: Float32Array = new Float32Array(0);
   private scriptNode: ScriptProcessorNode | null = null;
 
   private prevVolume = 0;
@@ -69,6 +71,7 @@ export class AudioAnalyzer {
     this.gainNode.connect(this.analyser);
     this.frequencyData = new Uint8Array(this.analyser.frequencyBinCount);
     this.waveformData = new Uint8Array(this.analyser.frequencyBinCount);
+    this.waveformFloat = new Float32Array(this.analyser.fftSize);
 
     // ScriptProcessor to capture raw audio for YAMNet (connected to raw source, not gain)
     this.scriptNode = this.context.createScriptProcessor(4096, 1, 1);
@@ -105,11 +108,12 @@ export class AudioAnalyzer {
 
   getFeatures(): AudioFeatures {
     if (!this.analyser) {
-      return { volume: 0, bass: 0, mid: 0, treble: 0, frequencies: new Uint8Array(0), waveform: new Uint8Array(0), pitch: 0, isSpeaking: false, soundType: 'silence', spectralCentroid: 0, spectralFlatness: 0, yamnetLabel: '', yamnetConfidence: 0 };
+      return { volume: 0, bass: 0, mid: 0, treble: 0, frequencies: new Uint8Array(0), waveform: new Uint8Array(0), waveformFloat: new Float32Array(0), pitch: 0, isSpeaking: false, soundType: 'silence', spectralCentroid: 0, spectralFlatness: 0, yamnetLabel: '', yamnetConfidence: 0 };
     }
 
     this.analyser.getByteFrequencyData(this.frequencyData as any);
     this.analyser.getByteTimeDomainData(this.waveformData as any);
+    this.analyser.getFloatTimeDomainData(this.waveformFloat as any);
 
     const len = this.frequencyData.length;
     const bassEnd = Math.floor(len * 0.1);
@@ -160,7 +164,7 @@ export class AudioAnalyzer {
 
     return {
       volume, bass, mid, treble,
-      frequencies: this.frequencyData, waveform: this.waveformData,
+      frequencies: this.frequencyData, waveform: this.waveformData, waveformFloat: this.waveformFloat,
       pitch, isSpeaking, soundType, spectralCentroid, spectralFlatness,
       yamnetLabel: this.yamnetRawLabel,
       yamnetConfidence: this.yamnetConfidence,
