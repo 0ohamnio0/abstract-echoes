@@ -342,6 +342,8 @@ export default function SoundCanvas() {
           if (oscSwapXYRef.current) oscilloscopeRef.current.render(y, x);
           else oscilloscopeRef.current.render(x, y);
         }
+        // slit-scan: WebGL 중앙 밴드를 portraitBuffer에 누적 (QR 월페이퍼용)
+        if (canvasGLRef.current) engine.accumulateOscilloscopeSlice(canvasGLRef.current);
       }
     } else {
       engine.update(features);
@@ -1160,6 +1162,15 @@ export default function SoundCanvas() {
                 <QRCodeSVG value={qrData.url} size={160} />
               </div>
               <p className="text-xs text-muted-foreground font-mono">{qrData.countdown}초 후 사라짐</p>
+              {/* DEBUG: PC에서 결과 확인용. 설치 전 제거 */}
+              <a
+                href={qrData.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[10px] text-primary underline hover:opacity-80"
+              >
+                PC에서 열기 ↗
+              </a>
             </div>
           )}
         </div>

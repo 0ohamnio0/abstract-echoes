@@ -141,6 +141,7 @@ export class GenerativeEngine {
   private portraitBuffer: HTMLCanvasElement;
   private portraitCtx: CanvasRenderingContext2D;
   private portraitCursorY = 0;
+  private sliceFrameCounter = 0;     // slit-scan 프레임 스로틀링
   private sessionActive = false;     // 세션 중 여부 (portrait 세션 간 여백 삽입용)
 
   private history: number[] = [];    // 최근 N 샘플 (waveform amplitude -1~1)
@@ -179,7 +180,7 @@ export class GenerativeEngine {
     this.portraitBuffer.width = 1080;
     this.portraitBuffer.height = 2340;
     this.portraitCtx = this.portraitBuffer.getContext('2d', { alpha: false })!;
-    this.portraitCtx.fillStyle = '#FFFFFF';
+    this.portraitCtx.fillStyle = '#000000';
     this.portraitCtx.fillRect(0, 0, this.portraitBuffer.width, this.portraitBuffer.height);
     this.portraitCursorY = 40;
 
@@ -222,9 +223,7 @@ export class GenerativeEngine {
       this.history = snap;
     }
 
-    // 발화 중엔 실시간으로 portrait 버퍼에 한 줄씩 누적
     if (f.isSpeaking) this.lastVoiceAt = now;
-    if (this.volEnv > 0.02) this.paintPortraitLive();
 
     // 세션 갭 넘으면 portrait 커서 여백 + 타임라인 종료
     if (this.sessionActive && now - this.lastVoiceAt > gapMs) {
@@ -286,7 +285,6 @@ export class GenerativeEngine {
     }
 
     if (f.isSpeaking) this.lastVoiceAt = now;
-    if (this.volEnv > 0.02) this.paintPortraitLive();
 
     if (this.sessionActive && now - this.lastVoiceAt > gapMs) {
       this.portraitCursorY += 24;
@@ -346,9 +344,10 @@ export class GenerativeEngine {
     this.ctx.fillStyle = '#000000';
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     // portrait도 리셋
-    this.portraitCtx.fillStyle = '#FFFFFF';
+    this.portraitCtx.fillStyle = '#000000';
     this.portraitCtx.fillRect(0, 0, this.portraitBuffer.width, this.portraitBuffer.height);
     this.portraitCursorY = 40;
+    this.sliceFrameCounter = 0;
     this.sessionActive = false;
     this.sessionAmps = [];
     this.sessionFrameTimes = [];
@@ -567,60 +566,28 @@ export class GenerativeEngine {
     }
   }
 
-  // ── 세로 월페이퍼 라이브 누적 ──
-  // 발화 중 매 프레임 한 줄(가로 파형 → 세로 중앙에 얇은 스캔라인)을 portrait에 그리고
-  // 커서를 pixelAdvance 만큼 내려 시간축을 세로 방향으로 누적한다
-  private paintPortraitLive() {
+  // ── 세로 월페이퍼 90° 회전 max-blend 누적 ──
+  // 체험 중 WebGL oscilloscope 프레임을 90° 시계방향 회전 후 `cover` 방식으로 portrait 전체
+  // 꽉 채움(양옆 약간 crop — 진폭 중앙 집중이라 파형 손실 없음). `lighten` max-blend로
+  // 라인 궤적만 스케치처럼 쌓이고 배경은 한 프레임 수준 유지(whiteout 없음).
+  accumulateOscilloscopeSlice(src: HTMLCanvasElement) {
+    if (this.volEnv <= 0.02) return; // 침묵 프레임 skip
+    this.sliceFrameCounter++;
+    if (this.sliceFrameCounter % 6 !== 0) return; // 10 snaps/s @ 60fps
+
     const buf = this.portraitBuffer;
     const bctx = this.portraitCtx;
-    const pixelAdvance = 2.0; // 프레임당 세로 진행 (60fps × 2px ≈ 120px/s)
 
-    // 공간 부족 시 위로 스크롤
-    if (this.portraitCursorY + pixelAdvance > buf.height - 40) {
-      const shift = buf.height * 0.25;
-      const tmp = document.createElement('canvas');
-      tmp.width = buf.width; tmp.height = buf.height;
-      tmp.getContext('2d')!.drawImage(buf, 0, 0);
-      bctx.fillStyle = '#FFFFFF';
-      bctx.fillRect(0, 0, buf.width, buf.height);
-      bctx.drawImage(tmp, 0, -shift);
-      this.portraitCursorY -= shift;
-    }
-
-    const [h, s, l] = this.session.getLockedHsl() ?? [220, 85, 45];
-    const W = buf.width;
-    const marginX = 80;
-    const drawW = W - marginX * 2;
-    // 이번 프레임의 파형을 가로 방향으로 압축 — 세로 폭(진폭)만 표현
-    let peak = 0;
-    for (const v of this.history) if (Math.abs(v) > peak) peak = Math.abs(v);
-    const halfAmp = peak * 160; // 세로 진폭 스케일 (픽셀)
-    const cx = W / 2;
-    const y = this.portraitCursorY;
+    // cover scale: 회전 후 src.width가 portrait 세로, src.height가 portrait 가로 방향
+    const scale = Math.max(buf.width / src.height, buf.height / src.width);
 
     bctx.save();
-    bctx.strokeStyle = `hsl(${h}, ${s}%, ${Math.max(25, l - 25)}%)`;
-    bctx.lineCap = 'round';
-    // 얇은 수평 스캔 라인: 중앙에서 좌우로 진폭에 비례하는 폭
-    bctx.lineWidth = 1.4;
-    bctx.beginPath();
-    bctx.moveTo(cx - halfAmp, y);
-    bctx.lineTo(cx + halfAmp, y);
-    bctx.stroke();
-    // 파형 shape도 살짝 겹쳐 그려 텍스처감 — 가로 파장의 존재 암시
-    bctx.globalAlpha = 0.35;
-    bctx.lineWidth = 0.8;
-    bctx.beginPath();
-    const len = this.history.length;
-    for (let i = 0; i < len; i += 4) {
-      const x = marginX + (i / len) * drawW;
-      const yy = y + this.history[i] * 6;
-      if (i === 0) bctx.moveTo(x, yy); else bctx.lineTo(x, yy);
-    }
-    bctx.stroke();
+    bctx.globalCompositeOperation = 'lighten';
+    bctx.translate(buf.width / 2, buf.height / 2);
+    bctx.rotate(Math.PI / 2);
+    bctx.scale(scale, scale);
+    bctx.drawImage(src, -src.width / 2, -src.height / 2);
     bctx.restore();
-
-    this.portraitCursorY += pixelAdvance;
   }
 
   // ── Export ──────────────────────────────────────────────────
@@ -630,11 +597,11 @@ export class GenerativeEngine {
   }
 
   toPortraitDataURL(w = 1080, h = 2340): string {
-    // 발화가 없었으면 portraitBuffer가 비어 있을 수 있음 → 그대로 흰 배경 반환
+    // 발화가 없었으면 portraitBuffer가 비어 있을 수 있음 → 그대로 검정 배경 반환
     const out = document.createElement('canvas');
     out.width = w; out.height = h;
     const o = out.getContext('2d')!;
-    o.fillStyle = '#FFFFFF';
+    o.fillStyle = '#000000';
     o.fillRect(0, 0, w, h);
     // portraitBuffer 전체를 타겟 크기에 맞춰 복사 (레터박스 없이 fit)
     const srcRatio = this.portraitBuffer.width / this.portraitBuffer.height;
