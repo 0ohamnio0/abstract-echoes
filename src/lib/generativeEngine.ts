@@ -164,6 +164,10 @@ export class GenerativeEngine {
   // 레거시 API 유지용 — 튜닝 패널이 채우는 자리
   public params: OscParams = {};
 
+  // 클라 브랜딩 footer — 로고와 태그라인 분리 에셋
+  private logoImg: HTMLImageElement;
+  private taglineImg: HTMLImageElement;
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false })!;
@@ -186,6 +190,11 @@ export class GenerativeEngine {
 
     this.session = new SessionColorTracker(2000);
     this.history = new Array(1024).fill(0);
+
+    this.logoImg = new Image();
+    this.logoImg.src = '/bremen-logo.png';
+    this.taglineImg = new Image();
+    this.taglineImg.src = '/bremen-tagline.svg';
   }
 
   // ── 외부 API (SoundCanvas.tsx가 호출) ─────────────────────────
@@ -615,6 +624,33 @@ export class GenerativeEngine {
       dx = (w - dw) / 2;
     }
     o.drawImage(this.portraitBuffer, dx, dy, dw, dh);
+
+    // 하단 중앙 브랜딩 — 로고(위) + 태그라인(아래) 분리 에셋
+    const logoReady = this.logoImg.complete && this.logoImg.naturalWidth > 0;
+    const taglineReady = this.taglineImg.complete && this.taglineImg.naturalWidth > 0;
+    if (logoReady && taglineReady) {
+      // 태그라인: portrait 폭의 70%
+      const taglineDstW = w * 0.7;
+      const taglineDstH = taglineDstW * (this.taglineImg.naturalHeight / this.taglineImg.naturalWidth);
+
+      // 로고: 태그라인 대비 4배 높이
+      const logoDstH = taglineDstH * 4;
+      const logoDstW = logoDstH * (this.logoImg.naturalWidth / this.logoImg.naturalHeight);
+
+      const gap = taglineDstH * 0.8;
+      const bottomMargin = Math.round(h * 0.045);
+      const totalH = logoDstH + gap + taglineDstH;
+      const blockTopY = h - bottomMargin - totalH;
+
+      const logoDstX = (w - logoDstW) / 2;
+      const taglineDstX = (w - taglineDstW) / 2;
+      const logoDstY = blockTopY;
+      const taglineDstY = logoDstY + logoDstH + gap;
+
+      o.drawImage(this.logoImg, logoDstX, logoDstY, logoDstW, logoDstH);
+      o.drawImage(this.taglineImg, taglineDstX, taglineDstY, taglineDstW, taglineDstH);
+    }
+
     return out.toDataURL('image/png');
   }
 }

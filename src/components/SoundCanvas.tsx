@@ -10,7 +10,7 @@ import TuningPanel from './TuningPanel';
 import OscilloscopePanel, { type SignalGenSettings } from './OscilloscopePanel';
 
 const IMGBB_API_KEY = '807140906d6d0c3c9a3b83ec99c22d74';
-const QR_VIEWER_BASE = 'https://exquisite-twilight-5847a3.netlify.app';
+const QR_VIEWER_BASE = typeof window !== 'undefined' ? `${window.location.origin}/viewer.html` : '/viewer.html';
 
 async function uploadToImgbb(dataUrl: string): Promise<string> {
   const base64 = dataUrl.split(',')[1];
