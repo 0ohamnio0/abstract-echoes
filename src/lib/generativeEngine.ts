@@ -115,11 +115,6 @@ const LIVE_PORTION = 0.6;          // 화면 오른쪽 라이브 영역 비율 (
 const LIVE_WINDOW_MS = 3000;      // 라이브 영역에 매핑되는 최근 시간
 const DOWNSAMPLE_PER_FRAME = 8;   // 프레임당 누적 샘플 개수 (waveform에서 다운샘플)
 
-// ── shift+strip 누적 파라미터 (60초 체험 기준 튜닝) ───────────────
-const ACCUM_STRIP_W = 8;          // 체험 화면 가로 strip 폭 (px). 1720/8=215 slots
-const ACCUM_STRIP_N = 17;         // 60fps 기준 17 frame 주기 → 약 3.5 snaps/s → 61초 full
-const PORTRAIT_STRIP_H = 11;      // QR 월페이퍼 세로 strip 높이 (px). 2340/11=212 slots
-const PORTRAIT_STRIP_N = 17;      // 동일 snap rate → 60초에 full
 
 // ── 파라미터 기본값 ───────────────────────────────────────────────
 interface OscParams {
@@ -147,8 +142,7 @@ export class GenerativeEngine {
   private portraitBuffer: HTMLCanvasElement;
   private portraitCtx: CanvasRenderingContext2D;
   private portraitCursorY = 0;
-  private sliceFrameCounter = 0;     // slit-scan 프레임 스로틀링 (portrait)
-  private accumFrameCounter = 0;     // 체험 화면 가로 누적 스로틀링
+  private sliceFrameCounter = 0;     // legacy 스로틀링 (남겨둠, 영향 없음)
   private sessionActive = false;     // 세션 중 여부 (portrait 세션 간 여백 삽입용)
 
   private history: number[] = [];    // 최근 N 샘플 (waveform amplitude -1~1)
@@ -583,50 +577,23 @@ export class GenerativeEngine {
   }
 
   // ── QR 월페이퍼 세팅 (호출 시점에 1회) ──
-  // 체험 중 accumCanvas에 쌓인 "가로 시간축 네온 기록"을 90° 시계 회전해서 portraitBuffer에
-  // cover fit(세로 꽉, 좌우 약간 crop). 정보 손실 없음.
-  setPortraitFromAccum(accum: HTMLCanvasElement) {
+  // 체험 화면의 glCanvas(가로 시간축 네온 envelope 라인이 그려진 상태)를 90° 시계 회전 +
+  // cover fit으로 portraitBuffer에 그림. 정보 손실 없음, dood 라인 질감 그대로.
+  setPortraitFromGL(gl: HTMLCanvasElement) {
     const buf = this.portraitBuffer;
     const bctx = this.portraitCtx;
 
     bctx.fillStyle = '#000000';
     bctx.fillRect(0, 0, buf.width, buf.height);
 
-    // 회전 후 accum.width가 portrait 세로, accum.height가 portrait 가로
-    const scale = Math.max(buf.width / accum.height, buf.height / accum.width);
+    const scale = Math.max(buf.width / gl.height, buf.height / gl.width);
 
     bctx.save();
     bctx.translate(buf.width / 2, buf.height / 2);
     bctx.rotate(Math.PI / 2);
     bctx.scale(scale, scale);
-    bctx.drawImage(accum, -accum.width / 2, -accum.height / 2);
+    bctx.drawImage(gl, -gl.width / 2, -gl.height / 2);
     bctx.restore();
-  }
-
-  // ── 가로 체험 화면 가로 시간축 shift+strip 누적 ──
-  // 별도 accumCanvas(1720×1032) 제공받아 매 N 프레임 좌로 ACCUM_STRIP_W만큼 shift +
-  // 오른쪽 끝 ACCUM_STRIP_W 영역에 glCanvas 전체를 가로 압축/세로 그대로 얹음.
-  // SoundCanvas가 compositeCanvas에 이 accumCanvas를 배경으로 + glCanvas를 lighten overlay로 합성.
-  accumulateExperienceSlice(src: HTMLCanvasElement, accum: HTMLCanvasElement) {
-    if (this.volEnv <= 0.02) return;
-    this.accumFrameCounter++;
-    if (this.accumFrameCounter % ACCUM_STRIP_N !== 0) return;
-
-    const actx = accum.getContext('2d');
-    if (!actx) return;
-
-    // 1) 좌로 shift
-    actx.save();
-    actx.globalCompositeOperation = 'copy';
-    actx.drawImage(accum, -ACCUM_STRIP_W, 0);
-    actx.restore();
-
-    // 2) 오른쪽 끝에 새 strip
-    actx.drawImage(
-      src,
-      0, 0, src.width, src.height,
-      accum.width - ACCUM_STRIP_W, 0, ACCUM_STRIP_W, accum.height
-    );
   }
 
   // ── Export ──────────────────────────────────────────────────

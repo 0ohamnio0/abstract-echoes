@@ -172,9 +172,13 @@ const BEAST_AUDIO: Record<string, string> = {
 export default function SoundCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasGLRef = useRef<HTMLCanvasElement>(null);
-  const compositeCanvasRef = useRef<HTMLCanvasElement>(null);
-  const accumCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const oscilloscopeRef = useRef<Oscilloscope | null>(null);
+  // 체험 시간축 envelope용 history 배열. dood.al render에 직접 넘겨
+  // "시간축 네온 라인"으로 그림.
+  const HISTORY_LEN = 60 * 60; // 60초 × 60fps
+  const historyXRef = useRef<Float32Array | null>(null);
+  const historyYRef = useRef<Float32Array | null>(null);
+  const historyIdxRef = useRef(0);
   const analyzerRef = useRef<AudioAnalyzer | null>(null);
   const engineRef = useRef<GenerativeEngine | null>(null);
   const speechRef = useRef<SpeechTrigger | null>(null);
@@ -339,30 +343,27 @@ export default function SoundCanvas() {
           if (oscSwapXYRef.current) oscilloscopeRef.current.render(y, x);
           else oscilloscopeRef.current.render(x, y);
         } else if (features.waveformFloat && features.waveformFloat.length > 0) {
-          // MIC path — Float precision (256단계 양자화 없는 연속 값)
-          const { x, y } = waveformFloatToXY(features.waveformFloat, oscPreAmpRef.current);
-          if (oscSwapXYRef.current) oscilloscopeRef.current.render(y, x);
-          else oscilloscopeRef.current.render(x, y);
-        }
-        // shift+strip 가로 시간축 누적 (체험 화면 + QR 공통 소스)
-        if (canvasGLRef.current && accumCanvasRef.current) {
-          engine.accumulateExperienceSlice(canvasGLRef.current, accumCanvasRef.current);
-        }
-        // composite: accumCanvas 배경 강조 + glCanvas 라이브 overlay 약하게 (dood 질감 hint)
-        if (compositeCanvasRef.current && accumCanvasRef.current && canvasGLRef.current) {
-          const cctx = compositeCanvasRef.current.getContext('2d');
-          if (cctx) {
-            cctx.fillStyle = '#000000';
-            cctx.fillRect(0, 0, compositeCanvasRef.current.width, compositeCanvasRef.current.height);
-            // accumCanvas를 두 번 그려 농도 2배 (주파수 레이어 강조)
-            cctx.drawImage(accumCanvasRef.current, 0, 0);
-            cctx.globalCompositeOperation = 'lighten';
-            cctx.drawImage(accumCanvasRef.current, 0, 0);
-            // glCanvas 라이브는 약하게 overlay
-            cctx.globalAlpha = 0.45;
-            cctx.drawImage(canvasGLRef.current, 0, 0, compositeCanvasRef.current.width, compositeCanvasRef.current.height);
-            cctx.globalAlpha = 1.0;
-            cctx.globalCompositeOperation = 'source-over';
+          // 현재 frame의 peak amplitude를 history에 push. 부호 교대로 중앙 대칭 envelope 형성.
+          let peak = 0;
+          for (const s of features.waveformFloat) {
+            const a = Math.abs(s);
+            if (a > peak) peak = a;
+          }
+          const amp = Math.min(1, peak * oscPreAmpRef.current * 0.05);
+          const xBuf = historyXRef.current;
+          const yBuf = historyYRef.current;
+          if (xBuf && yBuf) {
+            const sign = historyIdxRef.current % 2 === 0 ? 1 : -1;
+            if (historyIdxRef.current < HISTORY_LEN) {
+              yBuf[historyIdxRef.current] = amp * sign;
+              historyIdxRef.current++;
+            } else {
+              // full → 왼쪽으로 1 shift, 오른쪽 끝에 new
+              yBuf.copyWithin(0, 1);
+              yBuf[HISTORY_LEN - 1] = amp * sign;
+            }
+            if (oscSwapXYRef.current) oscilloscopeRef.current.render(yBuf, xBuf);
+            else oscilloscopeRef.current.render(xBuf, yBuf);
           }
         }
       }
@@ -418,22 +419,15 @@ export default function SoundCanvas() {
       // 사이클 시작 시 유저 색 랜덤 배정 (체험 한 사이클 = 한 유저)
       setOscHue(Math.floor(Math.random() * 360));
 
-      // accumCanvas 초기화 (가로 시간축, 1720×1032) + compositeCanvas 크기 세팅
-      if (!accumCanvasRef.current) {
-        accumCanvasRef.current = document.createElement('canvas');
+      // 체험 시간축 history 초기화
+      const hx = new Float32Array(HISTORY_LEN);
+      const hy = new Float32Array(HISTORY_LEN);
+      for (let i = 0; i < HISTORY_LEN; i++) {
+        hx[i] = -1 + (i / (HISTORY_LEN - 1)) * 2;
       }
-      const accum = accumCanvasRef.current;
-      accum.width = GL_RENDER_WIDTH;
-      accum.height = GL_RENDER_HEIGHT;
-      const actx = accum.getContext('2d');
-      if (actx) {
-        actx.fillStyle = '#000000';
-        actx.fillRect(0, 0, accum.width, accum.height);
-      }
-      if (compositeCanvasRef.current) {
-        compositeCanvasRef.current.width = GL_RENDER_WIDTH;
-        compositeCanvasRef.current.height = GL_RENDER_HEIGHT;
-      }
+      historyXRef.current = hx;
+      historyYRef.current = hy;
+      historyIdxRef.current = 0;
 
       const speech = new SpeechTrigger(event => {
         engineRef.current?.triggerSpecialEvent(event.word);
@@ -546,7 +540,7 @@ export default function SoundCanvas() {
     clearInterval(qrTimerRef.current);
     setQrData(null);
     try {
-      if (accumCanvasRef.current) engineRef.current.setPortraitFromAccum(accumCanvasRef.current);
+      if (canvasGLRef.current) engineRef.current.setPortraitFromGL(canvasGLRef.current);
       const dataUrl = engineRef.current.toPortraitDataURL();
       const imgUrl = await uploadToImgbb(dataUrl);
       const viewerUrl = `${QR_VIEWER_BASE}?img=${encodeURIComponent(imgUrl)}`;
@@ -585,7 +579,7 @@ export default function SoundCanvas() {
 
   const savePortrait = useCallback(() => {
     if (!engineRef.current) return;
-    if (accumCanvasRef.current) engineRef.current.setPortraitFromAccum(accumCanvasRef.current);
+    if (canvasGLRef.current) engineRef.current.setPortraitFromGL(canvasGLRef.current);
     downloadDataUrl(engineRef.current.toPortraitDataURL(), 'wallpaper');
     setShowSaveMenu(false);
   }, [downloadDataUrl]);
@@ -806,21 +800,8 @@ export default function SoundCanvas() {
           objectFit: 'cover',
         }}
       />
-      {/* dood.al WebGL (off-screen source) */}
       <canvas
         ref={canvasGLRef}
-        style={{
-          position: 'absolute',
-          inset: 0,
-          width: '100vw',
-          height: '100vh',
-          display: 'none',
-          backgroundColor: '#000000',
-        }}
-      />
-      {/* composite 화면 — accumCanvas(누적) 배경 + glCanvas(라이브) lighten overlay */}
-      <canvas
-        ref={compositeCanvasRef}
         style={{
           position: 'absolute',
           inset: 0,
