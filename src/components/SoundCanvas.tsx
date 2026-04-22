@@ -173,9 +173,10 @@ export default function SoundCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasGLRef = useRef<HTMLCanvasElement>(null);
   const oscilloscopeRef = useRef<Oscilloscope | null>(null);
-  // 체험 시간축 envelope용 history 배열. dood.al render에 직접 넘겨
-  // "시간축 네온 라인"으로 그림.
-  const HISTORY_LEN = 60 * 60; // 60초 × 60fps
+  // 세션 cap은 60초로 두되, 화면에는 최근 몇 초만 더 촘촘히 보여줘 즉시 반응을 만든다.
+  const DISPLAY_HISTORY_SECONDS = 8;
+  const HISTORY_SAMPLES_PER_FRAME = 24;
+  const HISTORY_LEN = DISPLAY_HISTORY_SECONDS * 60 * HISTORY_SAMPLES_PER_FRAME;
   const historyXRef = useRef<Float32Array | null>(null);
   const historyYRef = useRef<Float32Array | null>(null);
   const historyIdxRef = useRef(0);
@@ -343,25 +344,33 @@ export default function SoundCanvas() {
           if (oscSwapXYRef.current) oscilloscopeRef.current.render(y, x);
           else oscilloscopeRef.current.render(x, y);
         } else if (features.waveformFloat && features.waveformFloat.length > 0) {
-          // 현재 frame의 peak amplitude를 history에 push. 부호 교대로 중앙 대칭 envelope 형성.
-          let peak = 0;
-          for (const s of features.waveformFloat) {
-            const a = Math.abs(s);
-            if (a > peak) peak = a;
-          }
-          const amp = Math.min(1, peak * oscPreAmpRef.current * 0.05);
           const xBuf = historyXRef.current;
           const yBuf = historyYRef.current;
           if (xBuf && yBuf) {
-            const sign = historyIdxRef.current % 2 === 0 ? 1 : -1;
+            const insertCount = Math.min(HISTORY_SAMPLES_PER_FRAME, features.waveformFloat.length);
             if (historyIdxRef.current < HISTORY_LEN) {
-              yBuf[historyIdxRef.current] = amp * sign;
-              historyIdxRef.current++;
+              const remaining = HISTORY_LEN - historyIdxRef.current;
+              const fillCount = Math.min(insertCount, remaining);
+              const liveWindow = features.waveformFloat.length;
+              const liveStart = 0;
+              for (let i = 0; i < fillCount; i++) {
+                const srcIdx = liveStart + Math.floor((i / Math.max(1, fillCount - 1)) * (liveWindow - 1));
+                const amp = Math.max(-1, Math.min(1, features.waveformFloat[srcIdx] * oscPreAmpRef.current * 6));
+                yBuf[historyIdxRef.current + i] = amp;
+              }
+              historyIdxRef.current += fillCount;
             } else {
-              // full → 왼쪽으로 1 shift, 오른쪽 끝에 new
-              yBuf.copyWithin(0, 1);
-              yBuf[HISTORY_LEN - 1] = amp * sign;
+              // full → 왼쪽으로 chunk shift, 오른쪽 끝에 현재 waveform의 여러 샘플 삽입
+              yBuf.copyWithin(0, insertCount);
+              const liveWindow = features.waveformFloat.length;
+              const liveStart = 0;
+              for (let i = 0; i < insertCount; i++) {
+                const srcIdx = liveStart + Math.floor((i / Math.max(1, insertCount - 1)) * (liveWindow - 1));
+                const amp = Math.max(-1, Math.min(1, features.waveformFloat[srcIdx] * oscPreAmpRef.current * 6));
+                yBuf[HISTORY_LEN - insertCount + i] = amp;
+              }
             }
+
             if (oscSwapXYRef.current) oscilloscopeRef.current.render(yBuf, xBuf);
             else oscilloscopeRef.current.render(xBuf, yBuf);
           }
@@ -427,7 +436,8 @@ export default function SoundCanvas() {
       }
       historyXRef.current = hx;
       historyYRef.current = hy;
-      historyIdxRef.current = 0;
+      // 시작부터 shift 모드 — 새 샘플은 항상 오른쪽 끝에 들어오고 왼쪽으로 흐름.
+      historyIdxRef.current = HISTORY_LEN;
 
       const speech = new SpeechTrigger(event => {
         engineRef.current?.triggerSpecialEvent(event.word);
