@@ -172,6 +172,8 @@ const BEAST_AUDIO: Record<string, string> = {
 export default function SoundCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasGLRef = useRef<HTMLCanvasElement>(null);
+  const compositeCanvasRef = useRef<HTMLCanvasElement>(null);
+  const accumCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const oscilloscopeRef = useRef<Oscilloscope | null>(null);
   const analyzerRef = useRef<AudioAnalyzer | null>(null);
   const engineRef = useRef<GenerativeEngine | null>(null);
@@ -342,8 +344,25 @@ export default function SoundCanvas() {
           if (oscSwapXYRef.current) oscilloscopeRef.current.render(y, x);
           else oscilloscopeRef.current.render(x, y);
         }
-        // slit-scan: WebGL 중앙 밴드를 portraitBuffer에 누적 (QR 월페이퍼용)
-        if (canvasGLRef.current) engine.accumulateOscilloscopeSlice(canvasGLRef.current);
+        // shift+strip 누적 — QR 월페이퍼(세로) + 체험 화면(가로) 둘 다
+        if (canvasGLRef.current) {
+          engine.accumulateOscilloscopeSlice(canvasGLRef.current);
+          if (accumCanvasRef.current) {
+            engine.accumulateExperienceSlice(canvasGLRef.current, accumCanvasRef.current);
+          }
+        }
+        // composite: accumCanvas 배경 + glCanvas lighten overlay (dood 라인 질감 유지)
+        if (compositeCanvasRef.current && accumCanvasRef.current && canvasGLRef.current) {
+          const cctx = compositeCanvasRef.current.getContext('2d');
+          if (cctx) {
+            cctx.fillStyle = '#000000';
+            cctx.fillRect(0, 0, compositeCanvasRef.current.width, compositeCanvasRef.current.height);
+            cctx.drawImage(accumCanvasRef.current, 0, 0);
+            cctx.globalCompositeOperation = 'lighten';
+            cctx.drawImage(canvasGLRef.current, 0, 0, compositeCanvasRef.current.width, compositeCanvasRef.current.height);
+            cctx.globalCompositeOperation = 'source-over';
+          }
+        }
       }
     } else {
       engine.update(features);
@@ -396,6 +415,23 @@ export default function SoundCanvas() {
 
       // 사이클 시작 시 유저 색 랜덤 배정 (체험 한 사이클 = 한 유저)
       setOscHue(Math.floor(Math.random() * 360));
+
+      // accumCanvas 초기화 (가로 시간축, 1720×1032) + compositeCanvas 크기 세팅
+      if (!accumCanvasRef.current) {
+        accumCanvasRef.current = document.createElement('canvas');
+      }
+      const accum = accumCanvasRef.current;
+      accum.width = GL_RENDER_WIDTH;
+      accum.height = GL_RENDER_HEIGHT;
+      const actx = accum.getContext('2d');
+      if (actx) {
+        actx.fillStyle = '#000000';
+        actx.fillRect(0, 0, accum.width, accum.height);
+      }
+      if (compositeCanvasRef.current) {
+        compositeCanvasRef.current.width = GL_RENDER_WIDTH;
+        compositeCanvasRef.current.height = GL_RENDER_HEIGHT;
+      }
 
       const speech = new SpeechTrigger(event => {
         engineRef.current?.triggerSpecialEvent(event.word);
@@ -766,8 +802,21 @@ export default function SoundCanvas() {
           objectFit: 'cover',
         }}
       />
+      {/* dood.al WebGL (off-screen source) */}
       <canvas
         ref={canvasGLRef}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100vw',
+          height: '100vh',
+          display: 'none',
+          backgroundColor: '#000000',
+        }}
+      />
+      {/* composite 화면 — accumCanvas(누적) 배경 + glCanvas(라이브) lighten overlay */}
+      <canvas
+        ref={compositeCanvasRef}
         style={{
           position: 'absolute',
           inset: 0,

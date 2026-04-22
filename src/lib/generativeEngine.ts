@@ -115,6 +115,12 @@ const LIVE_PORTION = 0.6;          // 화면 오른쪽 라이브 영역 비율 (
 const LIVE_WINDOW_MS = 3000;      // 라이브 영역에 매핑되는 최근 시간
 const DOWNSAMPLE_PER_FRAME = 8;   // 프레임당 누적 샘플 개수 (waveform에서 다운샘플)
 
+// ── shift+strip 누적 파라미터 (60초 체험 기준 튜닝) ───────────────
+const ACCUM_STRIP_W = 8;          // 체험 화면 가로 strip 폭 (px). 1720/8=215 slots
+const ACCUM_STRIP_N = 17;         // 60fps 기준 17 frame 주기 → 약 3.5 snaps/s → 61초 full
+const PORTRAIT_STRIP_H = 11;      // QR 월페이퍼 세로 strip 높이 (px). 2340/11=212 slots
+const PORTRAIT_STRIP_N = 17;      // 동일 snap rate → 60초에 full
+
 // ── 파라미터 기본값 ───────────────────────────────────────────────
 interface OscParams {
   lineCore?: number;         // 코어 스트로크 두께 (px)
@@ -141,7 +147,8 @@ export class GenerativeEngine {
   private portraitBuffer: HTMLCanvasElement;
   private portraitCtx: CanvasRenderingContext2D;
   private portraitCursorY = 0;
-  private sliceFrameCounter = 0;     // slit-scan 프레임 스로틀링
+  private sliceFrameCounter = 0;     // slit-scan 프레임 스로틀링 (portrait)
+  private accumFrameCounter = 0;     // 체험 화면 가로 누적 스로틀링
   private sessionActive = false;     // 세션 중 여부 (portrait 세션 간 여백 삽입용)
 
   private history: number[] = [];    // 최근 N 샘플 (waveform amplitude -1~1)
@@ -575,28 +582,56 @@ export class GenerativeEngine {
     }
   }
 
-  // ── 세로 월페이퍼 90° 회전 max-blend 누적 ──
-  // 체험 중 WebGL oscilloscope 프레임을 90° 시계방향 회전 후 `cover` 방식으로 portrait 전체
-  // 꽉 채움(양옆 약간 crop — 진폭 중앙 집중이라 파형 손실 없음). `lighten` max-blend로
-  // 라인 궤적만 스케치처럼 쌓이고 배경은 한 프레임 수준 유지(whiteout 없음).
+  // ── 세로 월페이퍼 세로 시간축 shift+strip 누적 ──
+  // 매 N 프레임(PORTRAIT_STRIP_N): 기존 내용을 위로 PORTRAIT_STRIP_H만큼 shift +
+  // 맨 아래에 src(dood.al glCanvas) 전체를 가로 1080 맞춤/세로 PORTRAIT_STRIP_H 압축으로 얹음.
+  // 결과: 체험 시간에 따라 "선이 모여 면/덩어리" 형태(260406 스타일)로 누적.
   accumulateOscilloscopeSlice(src: HTMLCanvasElement) {
-    if (this.volEnv <= 0.02) return; // 침묵 프레임 skip
+    if (this.volEnv <= 0.02) return;
     this.sliceFrameCounter++;
-    if (this.sliceFrameCounter % 6 !== 0) return; // 10 snaps/s @ 60fps
+    if (this.sliceFrameCounter % PORTRAIT_STRIP_N !== 0) return;
 
     const buf = this.portraitBuffer;
     const bctx = this.portraitCtx;
 
-    // cover scale: 회전 후 src.width가 portrait 세로, src.height가 portrait 가로 방향
-    const scale = Math.max(buf.width / src.height, buf.height / src.width);
-
+    // 1) 기존 내용 위로 PORTRAIT_STRIP_H만큼 shift (맨 위는 자연 drop-off)
     bctx.save();
-    bctx.globalCompositeOperation = 'lighten';
-    bctx.translate(buf.width / 2, buf.height / 2);
-    bctx.rotate(Math.PI / 2);
-    bctx.scale(scale, scale);
-    bctx.drawImage(src, -src.width / 2, -src.height / 2);
+    bctx.globalCompositeOperation = 'copy';
+    bctx.drawImage(buf, 0, -PORTRAIT_STRIP_H);
     bctx.restore();
+
+    // 2) 맨 아래 PORTRAIT_STRIP_H 영역에 glCanvas 전체를 가로 맞춤 + 세로 압축으로 새 strip
+    bctx.drawImage(
+      src,
+      0, 0, src.width, src.height,
+      0, buf.height - PORTRAIT_STRIP_H, buf.width, PORTRAIT_STRIP_H
+    );
+  }
+
+  // ── 가로 체험 화면 가로 시간축 shift+strip 누적 ──
+  // 별도 accumCanvas(1720×1032) 제공받아 매 N 프레임 좌로 ACCUM_STRIP_W만큼 shift +
+  // 오른쪽 끝 ACCUM_STRIP_W 영역에 glCanvas 전체를 가로 압축/세로 그대로 얹음.
+  // SoundCanvas가 compositeCanvas에 이 accumCanvas를 배경으로 + glCanvas를 lighten overlay로 합성.
+  accumulateExperienceSlice(src: HTMLCanvasElement, accum: HTMLCanvasElement) {
+    if (this.volEnv <= 0.02) return;
+    this.accumFrameCounter++;
+    if (this.accumFrameCounter % ACCUM_STRIP_N !== 0) return;
+
+    const actx = accum.getContext('2d');
+    if (!actx) return;
+
+    // 1) 좌로 shift
+    actx.save();
+    actx.globalCompositeOperation = 'copy';
+    actx.drawImage(accum, -ACCUM_STRIP_W, 0);
+    actx.restore();
+
+    // 2) 오른쪽 끝에 새 strip
+    actx.drawImage(
+      src,
+      0, 0, src.width, src.height,
+      accum.width - ACCUM_STRIP_W, 0, ACCUM_STRIP_W, accum.height
+    );
   }
 
   // ── Export ──────────────────────────────────────────────────
