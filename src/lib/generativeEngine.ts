@@ -582,30 +582,25 @@ export class GenerativeEngine {
     }
   }
 
-  // ── 세로 월페이퍼 세로 시간축 shift+strip 누적 ──
-  // 매 N 프레임(PORTRAIT_STRIP_N): 기존 내용을 위로 PORTRAIT_STRIP_H만큼 shift +
-  // 맨 아래에 src(dood.al glCanvas) 전체를 가로 1080 맞춤/세로 PORTRAIT_STRIP_H 압축으로 얹음.
-  // 결과: 체험 시간에 따라 "선이 모여 면/덩어리" 형태(260406 스타일)로 누적.
-  accumulateOscilloscopeSlice(src: HTMLCanvasElement) {
-    if (this.volEnv <= 0.02) return;
-    this.sliceFrameCounter++;
-    if (this.sliceFrameCounter % PORTRAIT_STRIP_N !== 0) return;
-
+  // ── QR 월페이퍼 세팅 (호출 시점에 1회) ──
+  // 체험 중 accumCanvas에 쌓인 "가로 시간축 네온 기록"을 90° 시계 회전해서 portraitBuffer에
+  // cover fit(세로 꽉, 좌우 약간 crop). 정보 손실 없음.
+  setPortraitFromAccum(accum: HTMLCanvasElement) {
     const buf = this.portraitBuffer;
     const bctx = this.portraitCtx;
 
-    // 1) 기존 내용 위로 PORTRAIT_STRIP_H만큼 shift (맨 위는 자연 drop-off)
-    bctx.save();
-    bctx.globalCompositeOperation = 'copy';
-    bctx.drawImage(buf, 0, -PORTRAIT_STRIP_H);
-    bctx.restore();
+    bctx.fillStyle = '#000000';
+    bctx.fillRect(0, 0, buf.width, buf.height);
 
-    // 2) 맨 아래 PORTRAIT_STRIP_H 영역에 glCanvas 전체를 가로 맞춤 + 세로 압축으로 새 strip
-    bctx.drawImage(
-      src,
-      0, 0, src.width, src.height,
-      0, buf.height - PORTRAIT_STRIP_H, buf.width, PORTRAIT_STRIP_H
-    );
+    // 회전 후 accum.width가 portrait 세로, accum.height가 portrait 가로
+    const scale = Math.max(buf.width / accum.height, buf.height / accum.width);
+
+    bctx.save();
+    bctx.translate(buf.width / 2, buf.height / 2);
+    bctx.rotate(Math.PI / 2);
+    bctx.scale(scale, scale);
+    bctx.drawImage(accum, -accum.width / 2, -accum.height / 2);
+    bctx.restore();
   }
 
   // ── 가로 체험 화면 가로 시간축 shift+strip 누적 ──

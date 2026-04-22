@@ -344,22 +344,24 @@ export default function SoundCanvas() {
           if (oscSwapXYRef.current) oscilloscopeRef.current.render(y, x);
           else oscilloscopeRef.current.render(x, y);
         }
-        // shift+strip 누적 — QR 월페이퍼(세로) + 체험 화면(가로) 둘 다
-        if (canvasGLRef.current) {
-          engine.accumulateOscilloscopeSlice(canvasGLRef.current);
-          if (accumCanvasRef.current) {
-            engine.accumulateExperienceSlice(canvasGLRef.current, accumCanvasRef.current);
-          }
+        // shift+strip 가로 시간축 누적 (체험 화면 + QR 공통 소스)
+        if (canvasGLRef.current && accumCanvasRef.current) {
+          engine.accumulateExperienceSlice(canvasGLRef.current, accumCanvasRef.current);
         }
-        // composite: accumCanvas 배경 + glCanvas lighten overlay (dood 라인 질감 유지)
+        // composite: accumCanvas 배경 강조 + glCanvas 라이브 overlay 약하게 (dood 질감 hint)
         if (compositeCanvasRef.current && accumCanvasRef.current && canvasGLRef.current) {
           const cctx = compositeCanvasRef.current.getContext('2d');
           if (cctx) {
             cctx.fillStyle = '#000000';
             cctx.fillRect(0, 0, compositeCanvasRef.current.width, compositeCanvasRef.current.height);
+            // accumCanvas를 두 번 그려 농도 2배 (주파수 레이어 강조)
             cctx.drawImage(accumCanvasRef.current, 0, 0);
             cctx.globalCompositeOperation = 'lighten';
+            cctx.drawImage(accumCanvasRef.current, 0, 0);
+            // glCanvas 라이브는 약하게 overlay
+            cctx.globalAlpha = 0.45;
             cctx.drawImage(canvasGLRef.current, 0, 0, compositeCanvasRef.current.width, compositeCanvasRef.current.height);
+            cctx.globalAlpha = 1.0;
             cctx.globalCompositeOperation = 'source-over';
           }
         }
@@ -544,6 +546,7 @@ export default function SoundCanvas() {
     clearInterval(qrTimerRef.current);
     setQrData(null);
     try {
+      if (accumCanvasRef.current) engineRef.current.setPortraitFromAccum(accumCanvasRef.current);
       const dataUrl = engineRef.current.toPortraitDataURL();
       const imgUrl = await uploadToImgbb(dataUrl);
       const viewerUrl = `${QR_VIEWER_BASE}?img=${encodeURIComponent(imgUrl)}`;
@@ -582,6 +585,7 @@ export default function SoundCanvas() {
 
   const savePortrait = useCallback(() => {
     if (!engineRef.current) return;
+    if (accumCanvasRef.current) engineRef.current.setPortraitFromAccum(accumCanvasRef.current);
     downloadDataUrl(engineRef.current.toPortraitDataURL(), 'wallpaper');
     setShowSaveMenu(false);
   }, [downloadDataUrl]);
