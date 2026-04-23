@@ -532,6 +532,77 @@ export default function SoundCanvas() {
     }
   }, []);
 
+  /**
+   * Showcase 진입 시 "따라란~" 3음 상행 아르페지오.
+   * A 마이너 펜타토닉 E5→A5→C6, 하모니움 PeriodicWave [1,0.3,0.1] + feedback delay.
+   * playChime(트리거 단어 1음)과 같은 톤 팔레트 — D안 사운드 결 일관성 유지.
+   */
+  const playShowcaseFlourish = useCallback(() => {
+    try {
+      let ctx = chimeCtxRef.current;
+      if (!ctx) {
+        const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        if (!AC) return;
+        ctx = new AC();
+        chimeCtxRef.current = ctx;
+      }
+      if (ctx.state === 'suspended') void ctx.resume();
+      const now = ctx.currentTime;
+
+      // 하모니움 톤 (당나귀 악기 = playChime 레시피)
+      const real = new Float32Array([0, 1, 0.3, 0.1]);
+      const imag = new Float32Array([0, 0, 0, 0]);
+      const wave = ctx.createPeriodicWave(real, imag, { disableNormalization: false });
+
+      // InstrumentEngine과 동일 feedback delay 레시피 (0.22s · 0.42 · 4500Hz LP · 0.32 wet)
+      const delay = ctx.createDelay(0.5);
+      delay.delayTime.value = 0.22;
+      const feedback = ctx.createGain();
+      feedback.gain.value = 0.42;
+      const delayTone = ctx.createBiquadFilter();
+      delayTone.type = 'lowpass';
+      delayTone.frequency.value = 4500;
+      const wet = ctx.createGain();
+      wet.gain.value = 0.32;
+      delay.connect(delayTone);
+      delayTone.connect(feedback);
+      feedback.connect(delay);
+      delay.connect(wet);
+      wet.connect(ctx.destination);
+
+      // 상행 아르페지오 E5 → A5 → C6 (A 마이너 펜타토닉 중 개운한 상행 3음)
+      const notes = [659.25, 880.00, 1046.50];
+      const interval = 0.12;
+
+      notes.forEach((freq, i) => {
+        const t = now + i * interval;
+        const osc = ctx.createOscillator();
+        osc.setPeriodicWave(wave);
+        osc.frequency.value = freq;
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 2600;
+        filter.Q.value = 0.7;
+
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.15, t + 0.025);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+        gain.connect(delay);
+
+        osc.start(t);
+        osc.stop(t + 1.0);
+      });
+    } catch (e) {
+      console.warn('showcase flourish failed', e);
+    }
+  }, []);
+
   const playBeastAudio = useCallback((svg: string) => {
     const a = introAudioCacheRef.current[svg];
     if (!a) return;
@@ -977,6 +1048,8 @@ export default function SoundCanvas() {
     setShowcaseTimestamp(new Date());
     setPhase('showcase');
     setIsUploading(true);
+    // 액자 등장 효과음 — 디졸브 fade-in(700ms)과 거의 동시 시작, 3음 아르페지오 360ms
+    playShowcaseFlourish();
 
     // 5. idle 자동 복귀 타이머는 phase + showPrintPanel 기반 useEffect에서 관리
     //    (튜닝 패널 열려있으면 자동 정지)
