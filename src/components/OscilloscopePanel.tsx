@@ -42,11 +42,11 @@ export default function OscilloscopePanel({
   hue,
   onHueChange,
 }: Props) {
-  const [mainGain, setMainGain] = useState(3.6);
-  const [exposure, setExposure] = useState(1.6);
-  const [persistence, setPersistence] = useState(0.59);
-  const [lineSize, setLineSize] = useState(0.022);
-  const [intensity, setIntensity] = useState(0.1);
+  const [mainGain, setMainGain] = useState(0.3);
+  const [exposure, setExposure] = useState(-1.4);
+  const [persistence, setPersistence] = useState(-0.39);
+  const [lineSize, setLineSize] = useState(0.016);
+  const [intensity, setIntensity] = useState(0.067);
   const [invertXY, setInvertXY] = useState(false);
 
   useEffect(() => {

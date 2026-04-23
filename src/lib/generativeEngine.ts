@@ -370,6 +370,10 @@ export class GenerativeEngine {
     return this.sessionCapped;
   }
 
+  isSessionActive(): boolean {
+    return this.sessionActive;
+  }
+
   triggerSpecialEvent(_word: TriggerWord) {
     // TODO(task 64/65): 오실로스코프 버전에서의 키워드 이펙트 재설계 대기
     // 현재는 no-op (다음 update에서 파형 스냅샷이 덮어쓰므로 영향 없음)

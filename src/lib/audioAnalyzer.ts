@@ -53,7 +53,7 @@ export class AudioAnalyzer {
     this.context = new AudioContext();
     if (this.context.state === 'suspended') await this.context.resume();
     this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true }
+      audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true }
     });
     const source = this.context.createMediaStreamSource(this.stream);
 

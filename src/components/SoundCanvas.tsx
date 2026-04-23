@@ -3,6 +3,7 @@ import { createNoise3D } from 'simplex-noise';
 import { QRCodeSVG } from 'qrcode.react';
 import { AudioAnalyzer, SoundType } from '@/lib/audioAnalyzer';
 import { GenerativeEngine } from '@/lib/generativeEngine';
+import { InstrumentEngine } from '@/lib/instrumentEngine';
 import { Oscilloscope, waveformFloatToXY } from '@/lib/oscilloscope';
 import { createDefaultParams, extractValues, TuningParams, ParamDef } from '@/lib/tuningParams';
 import { SpeechTrigger, TriggerWord } from '@/lib/speechTrigger';
@@ -182,6 +183,7 @@ export default function SoundCanvas() {
   const historyIdxRef = useRef(0);
   const analyzerRef = useRef<AudioAnalyzer | null>(null);
   const engineRef = useRef<GenerativeEngine | null>(null);
+  const instrumentRef = useRef<InstrumentEngine | null>(null);
   const speechRef = useRef<SpeechTrigger | null>(null);
   const animFrameRef = useRef<number>(0);
   const idleAnimFrameRef = useRef<number>(0);
@@ -245,7 +247,7 @@ export default function SoundCanvas() {
   const [showDebugUI, setShowDebugUI] = useState(false);
   const [sessionCapped, setSessionCapped] = useState(false);
   const [showOscPanel, setShowOscPanel] = useState(false);
-  const [oscPreAmp, setOscPreAmp] = useState(1);
+  const [oscPreAmp, setOscPreAmp] = useState(1.0);
   const [oscSwapXY, setOscSwapXY] = useState(false);
   const [oscFreeze, setOscFreeze] = useState(false);
   const [oscHue, setOscHue] = useState(125);
@@ -253,12 +255,12 @@ export default function SoundCanvas() {
     enabled: false,
     xExpr: 'sin(2*PI*a*t)*cos(2*PI*b*t)',
     yExpr: 'cos(2*PI*a*t)*cos(2*PI*b*t)',
-    aValue: 1,
+    aValue: 0.7,
     aExp: 0,
     bValue: 1,
     bExp: 0,
   });
-  const oscPreAmpRef = useRef(8);
+  const oscPreAmpRef = useRef(1.0);
   const oscSwapXYRef = useRef(false);
   const oscFreezeRef = useRef(false);
   const oscSigGenRef = useRef<SignalGenSettings>(oscSigGen);
@@ -380,6 +382,8 @@ export default function SoundCanvas() {
       engine.update(features);
     }
 
+    instrumentRef.current?.feed(features, engine.isSessionActive());
+
     debugFrameRef.current++;
     if (debugFrameRef.current % 5 === 0) {
       setDebugVolume(features.volume);
@@ -457,6 +461,16 @@ export default function SoundCanvas() {
       });
       speech.start();
       speechRef.current = speech;
+
+      // Instrument layers — 첫 발화(engine.sessionActive edge)에 드론 페이드인.
+      const instrument = new InstrumentEngine();
+      try {
+        await instrument.start();
+        instrumentRef.current = instrument;
+      } catch (err) {
+        console.error('InstrumentEngine start failed:', err);
+      }
+
       setIsActive(true);
       animFrameRef.current = requestAnimationFrame(loop);
     } catch (e) {
@@ -481,6 +495,8 @@ export default function SoundCanvas() {
     clearIntroTimers();
     engineRef.current?.clear();
     engineRef.current = null; // Will be recreated by idle effect
+    instrumentRef.current?.stop();
+    instrumentRef.current = null;
     oscilloscopeRef.current?.dispose();
     oscilloscopeRef.current = null;
     setSessionCapped(false);
