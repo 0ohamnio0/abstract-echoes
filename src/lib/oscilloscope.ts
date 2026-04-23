@@ -35,11 +35,15 @@ uniform float uIntensity;
 uniform float uGain;
 attribute vec2 aStart, aEnd;
 attribute float aIdx;
+attribute float aHue;     // per-point hue (-1 → uSessionHue 사용, 0..360 → 해당 색)
+attribute float aWidth;   // per-point line-width 스케일 (0.4..2.0 권장, 기본 1.0). C2 덩어리감.
 varying vec4 uvl;
 varying vec2 vTexCoord;
 varying float vLen;
 varying float vSize;
+varying float vHue;
 void main () {
+  vHue = aHue;
   float tang;
   vec2 current;
   float idx = mod(aIdx,4.0);
@@ -52,7 +56,8 @@ void main () {
     dir = vec2(1.0, 0.0);
     vSize = 0.006/pow(EPS,0.08);
   }
-  vSize = uSize;
+  // 기본 uSize에 per-point width 스케일 곱 → 진폭 큰 구간 "덩어리감" (C2)
+  vSize = uSize * aWidth;
   vec2 norm = vec2(-dir.y, dir.x);
   if (idx >= 2.0) {
     current = aEnd*uGain;
@@ -80,10 +85,12 @@ const FS_GAUSSIAN = `
 precision highp float;
 uniform float uSize;
 uniform float uIntensity;
+uniform float uSessionHue;   // aHue < 0일 때 사용하는 세션 기본 hue (0..360)
 uniform sampler2D uScreen;
 varying float vSize;
 varying vec4 uvl;
 varying vec2 vTexCoord;
+varying float vHue;
 float gaussian(float x, float sigma) {
   return exp(-(x * x) / (2.0 * sigma * sigma)) / (TAUR * sigma);
 }
@@ -92,6 +99,16 @@ float erf(float x) {
   x = 1.0 + (0.278393 + (0.230389 + 0.078108 * (a * a)) * a) * a;
   x *= x;
   return s - s / (x * x);
+}
+// dood.al getColourFromHue 1:1 재구현 (CPU 쪽 getColourFromHue와 같은 곡선)
+vec3 hueToRgb(float hue) {
+  float h = mod(hue, 360.0);
+  float alpha = mod(h / 120.0, 1.0);
+  float s = sqrt(1.0 - alpha);
+  float e = sqrt(alpha);
+  if (h < 120.0) return vec3(s, e, 0.0);
+  if (h < 240.0) return vec3(0.0, s, e);
+  return vec3(e, 0.0, s);
 }
 void main (void) {
   float len = uvl.z;
@@ -105,8 +122,12 @@ void main (void) {
     brightness *= exp(-xy.y*xy.y/(2.0*sigma*sigma))/2.0/len;
   }
   brightness *= uvl.w;
-  gl_FragColor = 2.0 * texture2D(uScreen, vTexCoord) * brightness;
-  gl_FragColor.a = 1.0;
+  float hue = vHue < 0.0 ? uSessionHue : vHue;
+  vec3 tint = hueToRgb(hue);
+  vec4 grain = texture2D(uScreen, vTexCoord);
+  // 원본은 2.0 * grain * brightness (스칼라 밝기만).
+  // 확장: 같은 base에 tint를 곱해 per-segment 컬러를 lineTexture에 기록.
+  gl_FragColor = vec4(2.0 * grain.rgb * brightness * tint, 1.0);
 }
 `;
 
@@ -184,22 +205,23 @@ void main (void) {
 
 const FS_OUTPUT = `
 precision highp float;
-uniform sampler2D uTexture0; //line
-uniform sampler2D uTexture1; //tight glow
-uniform sampler2D uTexture2; //big glow
-uniform sampler2D uTexture3; //screen
+uniform sampler2D uTexture0; //line (RGB 컬러 포함 — per-segment hue)
+uniform sampler2D uTexture1; //tight glow (9차 합의로 compose 미사용, 바인딩만 유지)
+uniform sampler2D uTexture2; //big glow   (동일)
+uniform sampler2D uTexture3; //screen     (동일)
 uniform float uExposure;
-uniform vec3 uColour;
 varying vec2 vTexCoord;
 varying vec2 vTexCoordCanvas;
 void main (void) {
-  // 9차 합의 — "빛이 아니라 쉐입 자체에 집중": bloom 레이어(tightGlow, scatter, phosphor screen) 모두 제거
-  // 참고용 주석: 복원 시 아래 두 줄 (uTexture1/2/3) 및 screen/tightGlow/scatter sampling 복구
+  // 9차 합의 — "빛이 아니라 쉐입 자체에 집중": bloom 레이어 미사용
+  // C1(단어별 컬러 이스터에그) — line texture 자체에 RGB 색 기록. uColour uniform 제거.
   vec4 line = texture2D(uTexture0, vTexCoordCanvas);
-  float light = line.r;
+  float light = max(line.r, max(line.g, line.b));
   float tlight = 1.0-pow(2.0, -uExposure*light);
   float tlight2 = tlight*tlight*tlight;
-  gl_FragColor.rgb = mix(uColour, vec3(1.0), 0.3+tlight2*tlight2*0.5)*tlight;
+  // line.rgb의 색상 비율을 보존하면서 밝은 영역은 흰색으로 수렴 (원본 mix(uColour, white) 로직 재현)
+  vec3 tint = light > 0.0001 ? line.rgb / light : vec3(1.0);
+  gl_FragColor.rgb = mix(tint, vec3(1.0), 0.3+tlight2*tlight2*0.5)*tlight;
   gl_FragColor.a = 1.0;
 }
 `;
@@ -262,17 +284,17 @@ export class Oscilloscope {
   // Attribute/Uniform locations
   private simpleLoc: { vertexPosition: number; colour: WebGLUniformLocation | null; };
   private lineLoc: {
-    aStart: number; aEnd: number; aIdx: number;
+    aStart: number; aEnd: number; aIdx: number; aHue: number; aWidth: number;
     uGain: WebGLUniformLocation | null; uSize: WebGLUniformLocation | null;
     uInvert: WebGLUniformLocation | null; uIntensity: WebGLUniformLocation | null;
     uNEdges: WebGLUniformLocation | null; uFadeAmount: WebGLUniformLocation | null;
-    uScreen: WebGLUniformLocation | null;
+    uScreen: WebGLUniformLocation | null; uSessionHue: WebGLUniformLocation | null;
   };
   private outputLoc: {
     aPos: number;
     uTexture0: WebGLUniformLocation | null; uTexture1: WebGLUniformLocation | null;
     uTexture2: WebGLUniformLocation | null; uTexture3: WebGLUniformLocation | null;
-    uExposure: WebGLUniformLocation | null; uColour: WebGLUniformLocation | null;
+    uExposure: WebGLUniformLocation | null;
     uResizeForCanvas: WebGLUniformLocation | null;
   };
   private texturedLoc: {
@@ -298,9 +320,13 @@ export class Oscilloscope {
 
   // VBOs
   private vertexBuffer: WebGLBuffer;
+  private hueBuffer: WebGLBuffer | null = null;
+  private widthBuffer: WebGLBuffer | null = null;
   private quadIndexBuffer: WebGLBuffer | null = null;
   private vertexIndexBuffer: WebGLBuffer | null = null;
   private scratchVertices: Float32Array = new Float32Array(0);
+  private scratchHues: Float32Array = new Float32Array(0);
+  private scratchWidths: Float32Array = new Float32Array(0);
 
   private nPoints = 0;
   private nEdges = 0;
@@ -310,15 +336,15 @@ export class Oscilloscope {
 
   private floatTextureType: number;
 
-  // dood.al URL preset 기본값 (해민 제공)
+  // 9차 합의 "쉐입 집중" 방향 해민 튜닝값. OscilloscopePanel useState 초기값과 동기화.
+  // kiosk 모드(패널 미마운트)에서도 동일 값 보장 — 세팅 모드/키오스크 모드 간 차이 제거.
   public params: Required<OscilloscopeParams> = {
-    // dood.al URL preset #1.05,0,0,0,1,0.016,4,0,...,125,0,0,0 (2026-04-20)
-    mainGain: 1.05,
-    exposureStops: 0,
-    persistence: 0,
+    mainGain: 0.3,
+    exposureStops: -1.4,
+    persistence: -0.39,
     hue: 125,
-    lineSize: 0.026,
-    intensity: 0.1,
+    lineSize: 0.016,
+    intensity: 0.067,
     invertXY: false,
     bufferSize: 1024,
   };
@@ -371,6 +397,8 @@ export class Oscilloscope {
       aStart: gl.getAttribLocation(this.lineShader, 'aStart'),
       aEnd: gl.getAttribLocation(this.lineShader, 'aEnd'),
       aIdx: gl.getAttribLocation(this.lineShader, 'aIdx'),
+      aHue: gl.getAttribLocation(this.lineShader, 'aHue'),
+      aWidth: gl.getAttribLocation(this.lineShader, 'aWidth'),
       uGain: gl.getUniformLocation(this.lineShader, 'uGain'),
       uSize: gl.getUniformLocation(this.lineShader, 'uSize'),
       uInvert: gl.getUniformLocation(this.lineShader, 'uInvert'),
@@ -378,6 +406,7 @@ export class Oscilloscope {
       uNEdges: gl.getUniformLocation(this.lineShader, 'uNEdges'),
       uFadeAmount: gl.getUniformLocation(this.lineShader, 'uFadeAmount'),
       uScreen: gl.getUniformLocation(this.lineShader, 'uScreen'),
+      uSessionHue: gl.getUniformLocation(this.lineShader, 'uSessionHue'),
     };
     this.outputLoc = {
       aPos: gl.getAttribLocation(this.outputShader, 'aPos'),
@@ -386,7 +415,6 @@ export class Oscilloscope {
       uTexture2: gl.getUniformLocation(this.outputShader, 'uTexture2'),
       uTexture3: gl.getUniformLocation(this.outputShader, 'uTexture3'),
       uExposure: gl.getUniformLocation(this.outputShader, 'uExposure'),
-      uColour: gl.getUniformLocation(this.outputShader, 'uColour'),
       uResizeForCanvas: gl.getUniformLocation(this.outputShader, 'uResizeForCanvas'),
     };
     this.texturedLoc = {
@@ -401,6 +429,8 @@ export class Oscilloscope {
     };
 
     this.vertexBuffer = gl.createBuffer()!;
+    this.hueBuffer = gl.createBuffer()!;
+    this.widthBuffer = gl.createBuffer()!;
 
     // Framebuffer + textures (dood.al setupTextures)
     this.frameBuffer = gl.createFramebuffer()!;
@@ -495,6 +525,10 @@ export class Oscilloscope {
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
 
     this.scratchVertices = new Float32Array(8 * nPoints);
+    // per-corner hue (1 float × 4 corners × nPoints). corner k of point i → scratchHues[i*4+k]
+    this.scratchHues = new Float32Array(4 * nPoints);
+    // per-corner width 스케일 (기본 1.0)
+    this.scratchWidths = new Float32Array(4 * nPoints);
   }
 
   resize(width: number, height: number) {
@@ -520,25 +554,43 @@ export class Oscilloscope {
   }
 
   // 메인 엔트리: xPoints, yPoints 각각 Float32Array (-1..1 범위)
-  // mirror=true: 상하 대칭 — 같은 FBO에 y와 -y 두 라인을 fade 없이 누적해 그림 (9차 합의 β)
-  render(xPoints: Float32Array, yPoints: Float32Array, options?: { mirror?: boolean }) {
+  // options.mirror=true: 상하 대칭 — 같은 FBO에 y와 -y 두 라인을 fade 없이 누적해 그림 (9차 합의 β)
+  // options.hues: Float32Array(xPoints.length) — per-point hue. -1이면 uSessionHue(this.params.hue) 사용. (C1 단어별 컬러 이스터에그)
+  // options.widths: Float32Array(xPoints.length) — per-point line-width 스케일 (0.4..2.0 권장). 없으면 전체 1.0. (C2 덩어리감)
+  render(
+    xPoints: Float32Array,
+    yPoints: Float32Array,
+    options?: { mirror?: boolean; hues?: Float32Array; widths?: Float32Array },
+  ) {
     if (xPoints.length !== yPoints.length) throw new Error('x/y length mismatch');
     if (xPoints.length < 2) return;
+    if (options?.hues && options.hues.length !== xPoints.length) {
+      throw new Error('hues length must match xPoints');
+    }
+    if (options?.widths && options.widths.length !== xPoints.length) {
+      throw new Error('widths length must match xPoints');
+    }
     this.setupArrays(xPoints.length);
-    this.drawLineTexture(xPoints, yPoints, options?.mirror ?? false);
+    this.drawLineTexture(xPoints, yPoints, options?.mirror ?? false, options?.hues, options?.widths);
     this.drawCRT();
   }
 
-  private drawLineTexture(xPoints: Float32Array, yPoints: Float32Array, mirror: boolean) {
+  private drawLineTexture(
+    xPoints: Float32Array,
+    yPoints: Float32Array,
+    mirror: boolean,
+    hues?: Float32Array,
+    widths?: Float32Array,
+  ) {
     this.fadeAmount = Math.pow(0.5, this.params.persistence) * 0.2 * this.params.bufferSize / 512;
     this.activateTargetTexture(this.lineTexture);
     this.fade();
-    this.drawLine(xPoints, yPoints);
+    this.drawLine(xPoints, yPoints, hues, widths);
     if (mirror) {
       // 같은 FBO에 상하 반전 라인 추가 (fade 건너뜀 — 이미 위에서 한 번 수행)
       const yMirror = new Float32Array(yPoints.length);
       for (let i = 0; i < yPoints.length; i++) yMirror[i] = -yPoints[i];
-      this.drawLine(xPoints, yMirror);
+      this.drawLine(xPoints, yMirror, hues, widths);
     }
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, this.lineTexture);
@@ -589,8 +641,7 @@ export class Oscilloscope {
     const brightness = Math.pow(2, this.params.exposureStops - 2);
     gl.uniform1f(this.outputLoc.uExposure, brightness);
     gl.uniform1f(this.outputLoc.uResizeForCanvas, (this.lineTexture.width ?? 1024) / 1024);
-    const colour = this.getColourFromHue(this.params.hue);
-    gl.uniform3f(this.outputLoc.uColour, colour[0], colour[1], colour[2]);
+    // C1: lineTexture에 RGB 컬러가 이미 들어있음 → output shader의 uColour 제거.
     this.drawTexturedQuad(this.outputLoc.aPos, this.lineTexture, this.blur1Texture, this.blur3Texture, this.screenTexture);
   }
 
@@ -688,20 +739,32 @@ export class Oscilloscope {
     }
   }
 
-  private drawLine(xPoints: Float32Array, yPoints: Float32Array) {
+  private drawLine(xPoints: Float32Array, yPoints: Float32Array, hues?: Float32Array, widths?: Float32Array) {
     const gl = this.gl;
     this.setAdditiveBlending();
 
     const scratchVertices = this.scratchVertices;
+    const scratchHues = this.scratchHues;
+    const scratchWidths = this.scratchWidths;
     const nPoints = xPoints.length;
     for (let i = 0; i < nPoints; i++) {
       const p = i * 8;
       scratchVertices[p] = scratchVertices[p + 2] = scratchVertices[p + 4] = scratchVertices[p + 6] = xPoints[i];
       scratchVertices[p + 1] = scratchVertices[p + 3] = scratchVertices[p + 5] = scratchVertices[p + 7] = yPoints[i];
+      // per-corner hue — 4 corner 모두 같은 point hue (segment start/end 둘 다 같은 vertex data 흐름이라
+      // vertex shader의 varying vHue는 segment에서 선형 보간되지만, 시각적으로는 부드러운 그라데이션)
+      const h = hues ? hues[i] : -1;
+      scratchHues[i * 4] = scratchHues[i * 4 + 1] = scratchHues[i * 4 + 2] = scratchHues[i * 4 + 3] = h;
+      const w = widths ? widths[i] : 1;
+      scratchWidths[i * 4] = scratchWidths[i * 4 + 1] = scratchWidths[i * 4 + 2] = scratchWidths[i * 4 + 3] = w;
     }
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, scratchVertices, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.hueBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, scratchHues, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.widthBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, scratchWidths, gl.STATIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
     const program = this.lineShader;
@@ -709,12 +772,22 @@ export class Oscilloscope {
     gl.enableVertexAttribArray(this.lineLoc.aStart);
     gl.enableVertexAttribArray(this.lineLoc.aEnd);
     gl.enableVertexAttribArray(this.lineLoc.aIdx);
+    if (this.lineLoc.aHue >= 0) gl.enableVertexAttribArray(this.lineLoc.aHue);
+    if (this.lineLoc.aWidth >= 0) gl.enableVertexAttribArray(this.lineLoc.aWidth);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
     gl.vertexAttribPointer(this.lineLoc.aStart, 2, gl.FLOAT, false, 0, 0);
     gl.vertexAttribPointer(this.lineLoc.aEnd, 2, gl.FLOAT, false, 0, 8 * 4);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadIndexBuffer);
     gl.vertexAttribPointer(this.lineLoc.aIdx, 1, gl.FLOAT, false, 0, 0);
+    if (this.lineLoc.aHue >= 0) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.hueBuffer);
+      gl.vertexAttribPointer(this.lineLoc.aHue, 1, gl.FLOAT, false, 0, 0);
+    }
+    if (this.lineLoc.aWidth >= 0) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.widthBuffer);
+      gl.vertexAttribPointer(this.lineLoc.aWidth, 1, gl.FLOAT, false, 0, 0);
+    }
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.screenTexture);
@@ -726,6 +799,7 @@ export class Oscilloscope {
     gl.uniform1f(this.lineLoc.uIntensity, this.params.intensity);
     gl.uniform1f(this.lineLoc.uFadeAmount, this.fadeAmount);
     gl.uniform1f(this.lineLoc.uNEdges, this.nEdges);
+    gl.uniform1f(this.lineLoc.uSessionHue, this.params.hue);
 
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.vertexIndexBuffer);
     const nEdgesThisTime = xPoints.length - 1;
@@ -734,6 +808,8 @@ export class Oscilloscope {
     gl.disableVertexAttribArray(this.lineLoc.aStart);
     gl.disableVertexAttribArray(this.lineLoc.aEnd);
     gl.disableVertexAttribArray(this.lineLoc.aIdx);
+    if (this.lineLoc.aHue >= 0) gl.disableVertexAttribArray(this.lineLoc.aHue);
+    if (this.lineLoc.aWidth >= 0) gl.disableVertexAttribArray(this.lineLoc.aWidth);
   }
 
   private fade() {
@@ -765,6 +841,8 @@ export class Oscilloscope {
     for (const t of [this.lineTexture, this.blur1Texture, this.blur2Texture, this.blur3Texture, this.blur4Texture, this.screenTexture]) gl.deleteTexture(t);
     gl.deleteFramebuffer(this.frameBuffer);
     gl.deleteBuffer(this.vertexBuffer);
+    if (this.hueBuffer) gl.deleteBuffer(this.hueBuffer);
+    if (this.widthBuffer) gl.deleteBuffer(this.widthBuffer);
     if (this.quadIndexBuffer) gl.deleteBuffer(this.quadIndexBuffer);
     if (this.vertexIndexBuffer) gl.deleteBuffer(this.vertexIndexBuffer);
   }

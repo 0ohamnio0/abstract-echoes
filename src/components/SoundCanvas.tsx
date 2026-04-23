@@ -6,7 +6,7 @@ import { GenerativeEngine } from '@/lib/generativeEngine';
 import { InstrumentEngine } from '@/lib/instrumentEngine';
 import { Oscilloscope, waveformFloatToXY } from '@/lib/oscilloscope';
 import { createDefaultParams, extractValues, TuningParams, ParamDef } from '@/lib/tuningParams';
-import { SpeechTrigger } from '@/lib/speechTrigger';
+import { SpeechTrigger, type TriggerWord } from '@/lib/speechTrigger';
 import TuningPanel from './TuningPanel';
 import OscilloscopePanel, { type SignalGenSettings } from './OscilloscopePanel';
 
@@ -166,6 +166,21 @@ type Phase = 'idle' | 'intro' | 'listening' | 'showcase';
 // (a) 30초 cap 도달 자동 진입  (b) B 버튼 조기 종료
 const SHOWCASE_DURATION_MS = 20_000;
 
+// 9차 합의 — 단어별 컬러 이스터에그. 체험 중 트리거 단어 인식 시 history의 해당 구간
+// 0.3초 정도만 고유 hue로 칠해지고 세션 기본 hue로 자연 복귀. 인스타 "숨은 색 찾아보세요" 훅.
+const TRIGGER_HUE_MAP: Record<TriggerWord, number> = {
+  love: 330,    // 핑크
+  hello: 55,    // 옐로
+  happy: 30,    // 오렌지
+  wow: 0,       // 레드
+  thanks: 130,  // 그린
+  sorry: 210,   // 블루
+  missyou: 270, // 퍼플
+};
+
+// 한 트리거의 컬러 페인트 지속 시간 (샘플 수 기준, 프레임당 24샘플 기준 15프레임 ≈ 0.25초)
+const TRIGGER_PAINT_FRAMES = 18;
+
 /**
  * 오실로스코프 WebGL 캔버스를 "파형만 알파 채널로 분리된 투명 PNG"로 변환.
  * 검은 배경(+ phosphor grain)은 alpha 0, 밝은 파형은 불투명. 프레임 배경이 흰/검 무관.
@@ -229,7 +244,10 @@ export default function SoundCanvas() {
   const HISTORY_LEN = DISPLAY_HISTORY_SECONDS * 60 * HISTORY_SAMPLES_PER_FRAME;
   const historyXRef = useRef<Float32Array | null>(null);
   const historyYRef = useRef<Float32Array | null>(null);
+  const historyHueRef = useRef<Float32Array | null>(null);  // per-sample hue (-1 = 세션 hue, 0..360 = 이스터에그 컬러)
   const historyIdxRef = useRef(0);
+  // 현재 활성 트리거 컬러 페인트 상태 — 남은 프레임 수 동안 새 샘플에 트리거 hue 기록
+  const activeTriggerRef = useRef<{ hue: number; framesRemaining: number } | null>(null);
   const analyzerRef = useRef<AudioAnalyzer | null>(null);
   const engineRef = useRef<GenerativeEngine | null>(null);
   const instrumentRef = useRef<InstrumentEngine | null>(null);
@@ -459,8 +477,16 @@ export default function SoundCanvas() {
         } else if (features.waveformFloat && features.waveformFloat.length > 0) {
           const xBuf = historyXRef.current;
           const yBuf = historyYRef.current;
-          if (xBuf && yBuf) {
+          const hueBuf = historyHueRef.current;
+          if (xBuf && yBuf && hueBuf) {
             const insertCount = Math.min(HISTORY_SAMPLES_PER_FRAME, features.waveformFloat.length);
+            // 이번 프레임에 새로 들어오는 샘플의 기본 hue 결정 — 활성 트리거가 있으면 그 색, 아니면 -1(세션 hue)
+            let frameHue = -1;
+            if (activeTriggerRef.current && activeTriggerRef.current.framesRemaining > 0) {
+              frameHue = activeTriggerRef.current.hue;
+              activeTriggerRef.current.framesRemaining -= 1;
+              if (activeTriggerRef.current.framesRemaining <= 0) activeTriggerRef.current = null;
+            }
             if (historyIdxRef.current < HISTORY_LEN) {
               const remaining = HISTORY_LEN - historyIdxRef.current;
               const fillCount = Math.min(insertCount, remaining);
@@ -470,25 +496,34 @@ export default function SoundCanvas() {
                 const srcIdx = liveStart + Math.floor((i / Math.max(1, fillCount - 1)) * (liveWindow - 1));
                 const amp = Math.max(-1, Math.min(1, features.waveformFloat[srcIdx] * oscPreAmpRef.current * 6));
                 yBuf[historyIdxRef.current + i] = amp;
+                hueBuf[historyIdxRef.current + i] = frameHue;
               }
               historyIdxRef.current += fillCount;
             } else {
               // full → 왼쪽으로 chunk shift, 오른쪽 끝에 현재 waveform의 여러 샘플 삽입
               yBuf.copyWithin(0, insertCount);
+              hueBuf.copyWithin(0, insertCount);
               const liveWindow = features.waveformFloat.length;
               const liveStart = 0;
               for (let i = 0; i < insertCount; i++) {
                 const srcIdx = liveStart + Math.floor((i / Math.max(1, insertCount - 1)) * (liveWindow - 1));
                 const amp = Math.max(-1, Math.min(1, features.waveformFloat[srcIdx] * oscPreAmpRef.current * 6));
                 yBuf[HISTORY_LEN - insertCount + i] = amp;
+                hueBuf[HISTORY_LEN - insertCount + i] = frameHue;
               }
             }
 
             // 상하 대칭(β) — 중앙선 기준 양쪽 균등 위해 y 0.5배 스케일 후 mirror 옵션으로 y/-y 둘 다 렌더
+            // C2 덩어리감: |amp|에 비례한 per-point width 스케일 (0.7 얇은 기본 → 2.0 진폭 peak 덩어리)
             const yScaled = new Float32Array(yBuf.length);
-            for (let i = 0; i < yBuf.length; i++) yScaled[i] = yBuf[i] * 0.5;
-            if (oscSwapXYRef.current) oscilloscopeRef.current.render(yScaled, xBuf, { mirror: true });
-            else oscilloscopeRef.current.render(xBuf, yScaled, { mirror: true });
+            const widthsBuf = new Float32Array(yBuf.length);
+            for (let i = 0; i < yBuf.length; i++) {
+              yScaled[i] = yBuf[i] * 0.5;
+              const amp = Math.abs(yBuf[i]);
+              widthsBuf[i] = 0.7 + Math.min(1, amp) * 1.3;
+            }
+            if (oscSwapXYRef.current) oscilloscopeRef.current.render(yScaled, xBuf, { mirror: true, hues: hueBuf, widths: widthsBuf });
+            else oscilloscopeRef.current.render(xBuf, yScaled, { mirror: true, hues: hueBuf, widths: widthsBuf });
           }
         }
       }
@@ -550,16 +585,23 @@ export default function SoundCanvas() {
       }
 
       // 사이클 시작 시 유저 색 랜덤 배정 (체험 한 사이클 = 한 유저)
-      setOscHue(Math.floor(Math.random() * 360));
+      // kiosk 모드에선 OscilloscopePanel의 useEffect 동기화가 없으므로 params에도 직접 반영
+      const randomHue = Math.floor(Math.random() * 360);
+      setOscHue(randomHue);
+      oscilloscopeRef.current?.setParam('hue', randomHue);
 
       // 체험 시간축 history 초기화
       const hx = new Float32Array(HISTORY_LEN);
       const hy = new Float32Array(HISTORY_LEN);
+      const hhue = new Float32Array(HISTORY_LEN);
       for (let i = 0; i < HISTORY_LEN; i++) {
         hx[i] = -1 + (i / (HISTORY_LEN - 1)) * 2;
+        hhue[i] = -1; // -1 = 세션 기본 hue 사용 (shader uSessionHue)
       }
       historyXRef.current = hx;
       historyYRef.current = hy;
+      historyHueRef.current = hhue;
+      activeTriggerRef.current = null;
       // 시작부터 shift 모드 — 새 샘플은 항상 오른쪽 끝에 들어오고 왼쪽으로 흐름.
       historyIdxRef.current = HISTORY_LEN;
 
@@ -567,6 +609,11 @@ export default function SoundCanvas() {
         engineRef.current?.triggerSpecialEvent(event.word);
         // 청각 이스터에그: 인식됨을 짧은 bell chime으로만 피드백 (시각 텍스트는 숨김)
         playChime();
+        // 시각 이스터에그: 해당 단어 고유 hue를 0.3초 동안 새 샘플에 페인트 → 세션 색 흐름 속에 한 줄로 박힘
+        const triggerHue = TRIGGER_HUE_MAP[event.word];
+        if (typeof triggerHue === 'number') {
+          activeTriggerRef.current = { hue: triggerHue, framesRemaining: TRIGGER_PAINT_FRAMES };
+        }
       });
       speech.start();
       speechRef.current = speech;
@@ -709,6 +756,7 @@ export default function SoundCanvas() {
         const N = STROKE_COUNT * 2;
         const xFull = new Float32Array(N);
         const yFull = new Float32Array(N);
+        const widthsFull = new Float32Array(N);
         const bucketSize = ampsRaw.length / STROKE_COUNT;
         for (let b = 0; b < STROKE_COUNT; b++) {
           const start = Math.floor(b * bucketSize);
@@ -725,10 +773,13 @@ export default function SoundCanvas() {
           yFull[base] = -peak;
           xFull[base + 1] = x;
           yFull[base + 1] = peak;
+          // C2 덩어리감: peak 큰 stroke는 두껍게 (showcase 최종 이미지에서도 원칙 반영)
+          const w = 0.7 + peak * 1.3;
+          widthsFull[base] = widthsFull[base + 1] = w;
         }
         console.log('[showcase] strokes:', STROKE_COUNT, 'from', ampsRaw.length, 'samples');
         oscilloscopeRef.current.clear();
-        oscilloscopeRef.current.render(xFull, yFull, { mirror: false });
+        oscilloscopeRef.current.render(xFull, yFull, { mirror: false, widths: widthsFull });
       } else {
         console.warn('[showcase] sessionAmps too short — using live canvas as-is');
       }
@@ -1376,18 +1427,21 @@ export default function SoundCanvas() {
         </div>
       )}
 
-      {/* Showcase — 체험 종료 후 액자 전면 노출 (9차 합의, 레퍼런스 룩 롤백)
-          크림 얇은 테두리 + 액자 내부 우하단 QR 서명 */}
+      {/* Showcase — 체험 종료 후 인화사진 프레임 전면 노출 (9차 합의 ⭐ "흰 배경 목표 약속")
+          LED 전체 흰 배경 10초 → 매트 보드(크림) + 얇은 검정 외곽선 + 인쇄물 = 3겹 전시 프레임 */}
       {phase === 'showcase' && (
-        <div className="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center p-16">
+        <div className="absolute inset-0 z-50 bg-white flex flex-col items-center justify-center p-16">
           <div className="relative flex-1 w-full flex items-center justify-center min-h-0">
             <div
-              className="relative bg-white flex items-center justify-center max-w-[82vw] max-h-full"
+              className="relative flex items-center justify-center max-w-[84vw] max-h-full"
               style={{
-                padding: '48px 48px 132px 48px',
-                boxShadow: '0 24px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)',
-                border: '10px solid #f5f2ea',
-                outline: '1px solid rgba(0,0,0,0.15)',
+                background: '#ffffff',
+                // 3겹 레이어: 얇은 검정 키라인 → 크림 매트 → 흰 인쇄물
+                padding: '56px 56px 140px 56px',
+                boxShadow: '0 30px 90px rgba(0,0,0,0.18), 0 8px 24px rgba(0,0,0,0.08)',
+                border: '14px solid #f5f1e8',
+                outline: '1px solid rgba(20,20,20,0.22)',
+                outlineOffset: '-14px',
               }}
             >
               {showcaseImage && (
@@ -1398,18 +1452,18 @@ export default function SoundCanvas() {
                   style={{ maxWidth: '100%', maxHeight: '62vh' }}
                 />
               )}
-              {/* 액자 내부 우하단 QR 서명 블록 */}
-              <div className="absolute bottom-5 right-5 flex items-center gap-3">
+              {/* 프레임 내부 우하단 QR 서명 */}
+              <div className="absolute bottom-6 right-6 flex items-center gap-3">
                 <div className="text-right">
-                  <p className="text-neutral-600 text-[10px] tracking-[0.25em] uppercase">Scan to save</p>
-                  <p className="text-neutral-400 text-[9px] tracking-[0.2em] mt-0.5">BREMEN BACKYARD</p>
+                  <p className="text-neutral-700 text-[10px] tracking-[0.25em] uppercase">Scan to save</p>
+                  <p className="text-neutral-500 text-[9px] tracking-[0.2em] mt-0.5">BREMEN BACKYARD</p>
                 </div>
                 {!qrData || isUploading ? (
-                  <div className="bg-white border border-neutral-200 p-2 flex items-center justify-center w-[96px] h-[96px]">
+                  <div className="bg-white border border-neutral-300 p-2 flex items-center justify-center w-[96px] h-[96px]">
                     <div className="w-6 h-6 border-2 border-neutral-400 border-t-transparent rounded-full animate-spin" />
                   </div>
                 ) : (
-                  <div className="bg-white border border-neutral-200 p-2">
+                  <div className="bg-white border border-neutral-300 p-2">
                     <QRCodeSVG value={qrData.url} size={80} />
                   </div>
                 )}
@@ -1417,8 +1471,8 @@ export default function SoundCanvas() {
             </div>
           </div>
           <div className="mt-8 text-center">
-            <p className="text-white/80 text-[14px] tracking-[0.25em]">핸드폰으로 QR을 스캔해 내 기록을 저장해 보세요</p>
-            <p className="text-white/40 text-[10px] tracking-[0.25em] mt-1.5">잠시 후 초기 화면으로 돌아갑니다</p>
+            <p className="text-neutral-700 text-[14px] tracking-[0.25em]">핸드폰으로 QR을 스캔해 내 기록을 저장해 보세요</p>
+            <p className="text-neutral-400 text-[10px] tracking-[0.25em] mt-1.5">잠시 후 초기 화면으로 돌아갑니다</p>
           </div>
         </div>
       )}
