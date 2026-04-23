@@ -158,6 +158,9 @@ export class GenerativeEngine {
   // 왼쪽 40% = 세션 시작~3s전 압축 (decimate), 오른쪽 60% = 최근 3초 라이브. 둘 다 동일 가우시안+bloom.
   // 10분 상한 도달 시 멈추고 안내 메시지 노출.
   private sessionAmps: number[] = [];
+  // sessionAmps와 1:1 대응. 각 샘플 시점의 hue(-1=세션 기본, 0..360=트리거 색)
+  // showcase 프린트에서 bucket 내 트리거 hue 발견 시 해당 stroke에 색 override
+  private sessionHues: number[] = [];
   private sessionFrameTimes: number[] = [];
   private sessionStartMs = 0;
   private sessionCapped = false;
@@ -244,6 +247,7 @@ export class GenerativeEngine {
     if (f.isSpeaking && !this.sessionActive) {
       this.sessionActive = true;
       this.sessionAmps = [];
+      this.sessionHues = [];
       this.sessionFrameTimes = [];
       this.sessionStartMs = now;
       this.sessionCapped = false;
@@ -258,6 +262,7 @@ export class GenerativeEngine {
         for (let i = 0; i < DOWNSAMPLE_PER_FRAME; i++) {
           const idx = Math.floor(((i + 0.5) * histLen) / DOWNSAMPLE_PER_FRAME);
           this.sessionAmps.push(this.history[idx] ?? 0);
+          this.sessionHues.push(-1);
         }
         this.sessionFrameTimes.push(now);
       }
@@ -267,7 +272,8 @@ export class GenerativeEngine {
   }
 
   // listening 시 WebGL(woscope) 렌더러 사용 경로 — 타임라인만 갱신, Canvas 2D 렌더 스킵
-  updateTimelineOnly(f: AudioFeatures) {
+  // frameHue: 이번 프레임 새로 push되는 샘플의 hue 태그 (-1=세션 기본, 0..360=이스터에그 트리거 색)
+  updateTimelineOnly(f: AudioFeatures, frameHue: number = -1) {
     this.time += 1 / 60;
     const p = this.params;
     const gapMs = p.sessionGapMs ?? 2000;
@@ -302,6 +308,7 @@ export class GenerativeEngine {
     if (!this.sessionActive && !this.sessionCapped) {
       this.sessionActive = true;
       this.sessionAmps = [];
+      this.sessionHues = [];
       this.sessionFrameTimes = [];
       this.sessionStartMs = now;
     }
@@ -314,6 +321,7 @@ export class GenerativeEngine {
         for (let i = 0; i < DOWNSAMPLE_PER_FRAME; i++) {
           const idx = Math.floor(((i + 0.5) * histLen) / DOWNSAMPLE_PER_FRAME);
           this.sessionAmps.push(this.history[idx] ?? 0);
+          this.sessionHues.push(frameHue);
         }
         this.sessionFrameTimes.push(now);
       }
@@ -322,6 +330,7 @@ export class GenerativeEngine {
 
   // Woscope 렌더러가 샘플링하기 위한 getter
   getSessionAmps(): number[] { return this.sessionAmps; }
+  getSessionHues(): number[] { return this.sessionHues; }
   getSessionFrameTimes(): number[] { return this.sessionFrameTimes; }
   getSessionStartMs(): number { return this.sessionStartMs; }
   getLivePortion(): number { return LIVE_PORTION; }
@@ -358,6 +367,7 @@ export class GenerativeEngine {
     this.sliceFrameCounter = 0;
     this.sessionActive = false;
     this.sessionAmps = [];
+    this.sessionHues = [];
     this.sessionFrameTimes = [];
     this.sessionStartMs = 0;
     this.sessionCapped = false;

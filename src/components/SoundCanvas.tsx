@@ -9,6 +9,7 @@ import { createDefaultParams, extractValues, TuningParams, ParamDef } from '@/li
 import { SpeechTrigger, type TriggerWord } from '@/lib/speechTrigger';
 import TuningPanel from './TuningPanel';
 import OscilloscopePanel, { type SignalGenSettings } from './OscilloscopePanel';
+import PrintTuningPanel from './PrintTuningPanel';
 
 const IMGBB_API_KEY = '807140906d6d0c3c9a3b83ec99c22d74';
 const QR_VIEWER_BASE = typeof window !== 'undefined' ? `${window.location.origin}/viewer.html` : '/viewer.html';
@@ -29,6 +30,22 @@ interface QrData {
 }
 
 const STORAGE_KEY = 'soundcanvas-tuning-params';
+const PRINT_STORAGE_KEY = 'soundcanvas-print-params';
+
+function loadPrintParams(): PrintParams {
+  try {
+    const stored = localStorage.getItem(PRINT_STORAGE_KEY);
+    if (!stored) return { ...DEFAULT_PRINT_PARAMS };
+    const parsed = JSON.parse(stored) as Partial<PrintParams>;
+    return { ...DEFAULT_PRINT_PARAMS, ...parsed };
+  } catch {
+    return { ...DEFAULT_PRINT_PARAMS };
+  }
+}
+
+function savePrintParams(p: PrintParams) {
+  try { localStorage.setItem(PRINT_STORAGE_KEY, JSON.stringify(p)); } catch {}
+}
 
 function loadParams(): TuningParams {
   const defaults = createDefaultParams();
@@ -182,9 +199,198 @@ const TRIGGER_HUE_MAP: Record<TriggerWord, number> = {
 const TRIGGER_PAINT_FRAMES = 18;
 
 /**
- * 오실로스코프 WebGL 캔버스를 "파형만 알파 채널로 분리된 투명 PNG"로 변환.
- * 검은 배경(+ phosphor grain)은 alpha 0, 밝은 파형은 불투명. 프레임 배경이 흰/검 무관.
+ * HSL(0..360, 88%, 48%) → "#rrggbb". showcase 프린트용 솔리드 컬러.
  */
+function hueToHex(hue: number, sat = 0.88, light = 0.48): string {
+  const h = ((hue % 360) + 360) % 360;
+  const s = sat;
+  const l = light;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; }
+  else if (h < 120) { r = x; g = c; }
+  else if (h < 180) { g = c; b = x; }
+  else if (h < 240) { g = x; b = c; }
+  else if (h < 300) { r = x; b = c; }
+  else { r = c; b = x; }
+  const toHex = (v: number) => {
+    const n = Math.round((v + m) * 255);
+    return n.toString(16).padStart(2, '0');
+  };
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+export interface PrintParams {
+  strokeCount: number;    // 수직 라인 개수 (100..500)
+  strokeWidth: number;    // 라인 두께 px (1..6)
+  ampBoost: number;       // 진폭 배율 (0.5..5)
+  peakClamp: number;      // 최대 피크 clamp (0.3..1.0)
+  minHalfH: number;       // 침묵 구간 최소 반높이 px (0..10)
+  padX: number;           // 좌우 여백 비율 (0..0.15)
+  padY: number;           // 상하 여백 비율 (0..0.25)
+  saturation: number;     // HSL 채도 (0.3..1.0)
+  lightness: number;      // HSL 명도 (0.2..0.8)
+}
+
+// 해민 확정 튜닝값.
+export const DEFAULT_PRINT_PARAMS: PrintParams = {
+  strokeCount: 500,
+  strokeWidth: 3,
+  ampBoost: 1.8,
+  peakClamp: 0.95,
+  minHalfH: 3,
+  padX: 0.0,
+  padY: 0.110,
+  saturation: 0.64,
+  lightness: 0.66,
+};
+
+/**
+ * 사운드웨이브 프린트 아트 렌더러 (showcase 프레임 내부 이미지).
+ *
+ * 레퍼런스: "I love you Jeff!" 류 sound wave art print —
+ *   얇은 솔리드 수직 라인 수백 개가 진폭 비례 높이로 중앙선 위아래 뻗고,
+ *   트리거 단어 구간만 고유 색으로 박혀 이스터에그 서사 완결.
+ *
+ * 구현: Canvas 2D fillRect. dood.al WebGL 엔진(가우시안 beam)과 독립.
+ *   - bucket 내 hue 샘플 스캔, 트리거 hue(≥0) 발견 시 그 색으로 stroke, 없으면 fallback(세션 hue)
+ *   - 배경 투명 PNG — showcase 프레임 흰 바탕 위에 얹힘
+ */
+function renderSoundWavePrint(
+  sessionAmps: number[],
+  sessionHues: number[],
+  fallbackHue: number,
+  params: PrintParams = DEFAULT_PRINT_PARAMS,
+): string {
+  // 해상도: 설치 기준 gl canvas와 유사한 가로 비율 유지 + 인쇄물 느낌의 여백
+  const W = 1720;
+  const H = 1032;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const ctx = c.getContext('2d');
+  if (!ctx) throw new Error('2d context unavailable for soundwave print');
+  ctx.clearRect(0, 0, W, H);
+
+  const STROKE_COUNT = Math.min(params.strokeCount, Math.floor(sessionAmps.length / 2));
+  if (STROKE_COUNT < 2) return c.toDataURL('image/png');
+
+  const stripLeft = Math.round(W * params.padX);
+  const stripRight = Math.round(W * (1 - params.padX));
+  const stripWidth = stripRight - stripLeft;
+  const STROKE_W = Math.max(1, Math.round(params.strokeWidth));
+  const stepX = stripWidth / (STROKE_COUNT - 1);
+  const cy = H * 0.5;
+  const maxHalfH = H * (0.5 - params.padY);
+
+  const bucketSize = sessionAmps.length / STROKE_COUNT;
+  const fallbackColor = hueToHex(fallbackHue, params.saturation, params.lightness);
+
+  for (let b = 0; b < STROKE_COUNT; b++) {
+    const start = Math.floor(b * bucketSize);
+    const end = Math.min(sessionAmps.length, Math.floor((b + 1) * bucketSize));
+    let maxAbs = 0;
+    let bucketHue = -1;
+    for (let j = start; j < end; j++) {
+      const a = Math.abs(sessionAmps[j] ?? 0);
+      if (a > maxAbs) maxAbs = a;
+      if (bucketHue < 0) {
+        const h = sessionHues[j];
+        if (typeof h === 'number' && h >= 0) bucketHue = h;
+      }
+    }
+    const peak = Math.min(params.peakClamp, maxAbs * params.ampBoost);
+    const halfH = Math.max(params.minHalfH, maxHalfH * peak);
+    const xCenter = stripLeft + b * stepX;
+    const x = Math.round(xCenter - STROKE_W / 2);
+    const yTop = Math.round(cy - halfH);
+    const h2 = Math.round(halfH * 2);
+    ctx.fillStyle = bucketHue >= 0
+      ? hueToHex(bucketHue, params.saturation, params.lightness)
+      : fallbackColor;
+    ctx.fillRect(x, yTop, STROKE_W, h2);
+  }
+
+  return c.toDataURL('image/png');
+}
+
+/**
+ * 휴대폰 월페이퍼용 세로 sound wave print (1080×2340).
+ *
+ * 9차 합의 "Showcase 프레임 + 다운로드 이미지: 흰 배경 목표" 준수.
+ *   - LED 액자(가로)와 동일한 렌더러 결 — hue·sat·light 일관
+ *   - 시간축이 세로(위→아래), 중앙 세로선 기준 좌우로 진폭 stroke
+ *   - 휴대폰 세로 화면 비율에 자연 포맷
+ *
+ * 가로 `renderSoundWavePrint`의 축만 회전한 버전. 같은 PrintParams 사용.
+ */
+function renderSoundWavePrintPortrait(
+  sessionAmps: number[],
+  sessionHues: number[],
+  fallbackHue: number,
+  params: PrintParams = DEFAULT_PRINT_PARAMS,
+): string {
+  const W = 1080;
+  const H = 2340;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const ctx = c.getContext('2d');
+  if (!ctx) throw new Error('2d context unavailable for portrait print');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+
+  const STROKE_COUNT = Math.min(params.strokeCount, Math.floor(sessionAmps.length / 2));
+  if (STROKE_COUNT < 2) return c.toDataURL('image/png');
+
+  // 시간축 세로. padY는 세로 패딩(위/아래 여백)으로 해석.
+  const stripTop = Math.round(H * params.padY);
+  const stripBottom = Math.round(H * (1 - params.padY));
+  const stripHeight = stripBottom - stripTop;
+  const STROKE_H = Math.max(1, Math.round(params.strokeWidth));  // stroke 세로 두께
+  const stepY = stripHeight / (STROKE_COUNT - 1);
+  const cx = W * 0.5;
+  // padX는 좌우 여백(진폭 확장 한계)으로 해석
+  const maxHalfW = W * (0.5 - params.padX);
+
+  const bucketSize = sessionAmps.length / STROKE_COUNT;
+  const fallbackColor = hueToHex(fallbackHue, params.saturation, params.lightness);
+
+  for (let b = 0; b < STROKE_COUNT; b++) {
+    const start = Math.floor(b * bucketSize);
+    const end = Math.min(sessionAmps.length, Math.floor((b + 1) * bucketSize));
+    let maxAbs = 0;
+    let bucketHue = -1;
+    for (let j = start; j < end; j++) {
+      const a = Math.abs(sessionAmps[j] ?? 0);
+      if (a > maxAbs) maxAbs = a;
+      if (bucketHue < 0) {
+        const h = sessionHues[j];
+        if (typeof h === 'number' && h >= 0) bucketHue = h;
+      }
+    }
+    const peak = Math.min(params.peakClamp, maxAbs * params.ampBoost);
+    const halfW = Math.max(params.minHalfH, maxHalfW * peak);
+    const yCenter = stripTop + b * stepY;
+    const y = Math.round(yCenter - STROKE_H / 2);
+    const xLeft = Math.round(cx - halfW);
+    const w2 = Math.round(halfW * 2);
+    ctx.fillStyle = bucketHue >= 0
+      ? hueToHex(bucketHue, params.saturation, params.lightness)
+      : fallbackColor;
+    ctx.fillRect(xLeft, y, w2, STROKE_H);
+  }
+
+  return c.toDataURL('image/png');
+}
+
+/**
+ * (legacy) 오실로스코프 WebGL 캔버스를 "파형만 알파 채널로 분리된 투명 PNG"로 변환.
+ * showcase 리뉴얼(sound wave print) 이후 미사용 — 필요 시 롤백용으로 유지.
+ */
+// @ts-expect-error — 보관용, 빌드 시 미참조
 async function toAlphaPng(gl: HTMLCanvasElement): Promise<string> {
   const rgbaDataUrl = gl.toDataURL('image/png');
   const img = new Image();
@@ -201,26 +407,28 @@ async function toAlphaPng(gl: HTMLCanvasElement): Promise<string> {
   ctx.drawImage(img, 0, 0);
   const imageData = ctx.getImageData(0, 0, c.width, c.height);
   const data = imageData.data;
-  // "찐한 색" — gamma 0.45로 약한 값 boost, threshold 이상은 빠르게 불투명에 수렴
-  // 동시에 rgb도 저조도 구간 boost해서 투명 이미지에서도 솔리드 컬러 유지
+  // 진한 색 정책:
+  //  - 각 픽셀의 rgb를 max채널=255로 정규화 → shader에서 grain × brightness로 흐려진 tint를 원색 포화 상태로 복원
+  //  - alpha는 luma 기반 gamma boost(0.38 — 약한 선도 충분히 불투명) × 360 scale
+  //  - luma threshold 10 — phosphor grain 잔여물 완전 제거
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i];
     const g = data[i + 1];
     const b = data[i + 2];
     const luma = 0.299 * r + 0.587 * g + 0.114 * b;
-    if (luma < 6) {
+    if (luma < 10) {
       data[i + 3] = 0;
       continue;
     }
-    // gamma boost alpha
-    const alphaNorm = Math.pow(luma / 255, 0.45);
-    data[i + 3] = Math.min(255, Math.round(alphaNorm * 280));
-    // rgb도 같은 gamma로 끌어올려 약한 라인도 진한 컬러로
-    const rgbGain = Math.pow(Math.max(r, g, b) / 255, 0.45);
-    const rgbScale = rgbGain === 0 ? 1 : rgbGain / (Math.max(r, g, b) / 255);
-    data[i] = Math.min(255, Math.round(r * rgbScale));
-    data[i + 1] = Math.min(255, Math.round(g * rgbScale));
-    data[i + 2] = Math.min(255, Math.round(b * rgbScale));
+    const m = Math.max(r, g, b);
+    if (m > 0) {
+      const scale = 255 / m;
+      data[i] = Math.min(255, Math.round(r * scale));
+      data[i + 1] = Math.min(255, Math.round(g * scale));
+      data[i + 2] = Math.min(255, Math.round(b * scale));
+    }
+    const alphaNorm = Math.pow(luma / 255, 0.38);
+    data[i + 3] = Math.min(255, Math.round(alphaNorm * 360));
   }
   ctx.putImageData(imageData, 0, 0);
   return c.toDataURL('image/png');
@@ -370,6 +578,10 @@ export default function SoundCanvas() {
   const [showcaseImage, setShowcaseImage] = useState<string | null>(null);
   const [showcaseTimestamp, setShowcaseTimestamp] = useState<Date | null>(null);
   const showcaseTimerRef = useRef<number>(0);
+  // Print 튜닝 — showcase 이미지 재렌더에 필요한 세션 스냅샷 보관
+  const [printParams, setPrintParams] = useState<PrintParams>(loadPrintParams);
+  const [showPrintPanel, setShowPrintPanel] = useState(false);
+  const printSnapshotRef = useRef<{ amps: number[]; hues: number[]; fallbackHue: number } | null>(null);
   // loop()이 stale closure 안 타도록 enterShowcase를 ref로 경유 호출
   const enterShowcaseRef = useRef<() => void>(() => {});
 
@@ -450,7 +662,15 @@ export default function SoundCanvas() {
 
     // listening 시엔 Canvas 2D 렌더 스킵, 타임라인 누적만 (월페이퍼용) + dood.al 실시간 렌더
     if (oscilloscopeRef.current) {
-      engine.updateTimelineOnly(features);
+      // 이번 프레임의 활성 트리거 hue (live history + engine sessionHues 양쪽에 동기 기록)
+      // 감소는 이 시점에서 1회만 수행 — live render 경로에선 read-only로 변경
+      let activeHue = -1;
+      if (activeTriggerRef.current && activeTriggerRef.current.framesRemaining > 0) {
+        activeHue = activeTriggerRef.current.hue;
+        activeTriggerRef.current.framesRemaining -= 1;
+        if (activeTriggerRef.current.framesRemaining <= 0) activeTriggerRef.current = null;
+      }
+      engine.updateTimelineOnly(features, activeHue);
       if (!oscFreezeRef.current) {
         const sig = oscSigGenRef.current;
         if (sig.enabled && sigGenFnRef.current) {
@@ -480,13 +700,8 @@ export default function SoundCanvas() {
           const hueBuf = historyHueRef.current;
           if (xBuf && yBuf && hueBuf) {
             const insertCount = Math.min(HISTORY_SAMPLES_PER_FRAME, features.waveformFloat.length);
-            // 이번 프레임에 새로 들어오는 샘플의 기본 hue 결정 — 활성 트리거가 있으면 그 색, 아니면 -1(세션 hue)
-            let frameHue = -1;
-            if (activeTriggerRef.current && activeTriggerRef.current.framesRemaining > 0) {
-              frameHue = activeTriggerRef.current.hue;
-              activeTriggerRef.current.framesRemaining -= 1;
-              if (activeTriggerRef.current.framesRemaining <= 0) activeTriggerRef.current = null;
-            }
+            // engine.updateTimelineOnly에 넘겨준 activeHue와 같은 값 — engine/live 동기 보장
+            const frameHue = activeHue;
             if (historyIdxRef.current < HISTORY_LEN) {
               const remaining = HISTORY_LEN - historyIdxRef.current;
               const fillCount = Math.min(insertCount, remaining);
@@ -739,62 +954,22 @@ export default function SoundCanvas() {
     speechRef.current?.stop();
     instrumentRef.current?.stop();
 
-    // 3. γ — sessionAmps 기반 "체험 전체" 정적 waveform 재렌더
-    //   spectrogram-like: 각 bucket의 peak를 수직 stroke pair(x,-peak)→(x,+peak)로 그려
-    //   라인 한 줄 한 줄이 구분되는 룩 (이미지 #10 레퍼런스). 인접 stroke 간 대각선은
-    //   polyline 특성상 envelope으로 나타남 — 자연스러운 보조 효과.
-    if (oscilloscopeRef.current && engineRef.current) {
-      const ampsRaw = engineRef.current.getSessionAmps();
-      if (ampsRaw.length >= 4) {
-        // 수직 stroke 개수. 1720 LED에서 간격 ~4px 정도가 시각 분리에 적당.
-        const STROKE_COUNT = Math.min(420, Math.floor(ampsRaw.length / 6));
-        const xStart = -0.98;
-        const xEnd = 0.98;
-        const AMP_BOOST = 2.4;
-        const PEAK_CLAMP = 0.92;
-
-        const N = STROKE_COUNT * 2;
-        const xFull = new Float32Array(N);
-        const yFull = new Float32Array(N);
-        const widthsFull = new Float32Array(N);
-        const bucketSize = ampsRaw.length / STROKE_COUNT;
-        for (let b = 0; b < STROKE_COUNT; b++) {
-          const start = Math.floor(b * bucketSize);
-          const end = Math.min(ampsRaw.length, Math.floor((b + 1) * bucketSize));
-          let maxAbs = 0;
-          for (let j = start; j < end; j++) {
-            const a = Math.abs(ampsRaw[j] ?? 0);
-            if (a > maxAbs) maxAbs = a;
-          }
-          const peak = Math.min(PEAK_CLAMP, maxAbs * AMP_BOOST);
-          const x = xStart + (b / Math.max(1, STROKE_COUNT - 1)) * (xEnd - xStart);
-          const base = 2 * b;
-          xFull[base] = x;
-          yFull[base] = -peak;
-          xFull[base + 1] = x;
-          yFull[base + 1] = peak;
-          // C2 덩어리감: peak 큰 stroke는 두껍게 (showcase 최종 이미지에서도 원칙 반영)
-          const w = 0.7 + peak * 1.3;
-          widthsFull[base] = widthsFull[base + 1] = w;
-        }
-        console.log('[showcase] strokes:', STROKE_COUNT, 'from', ampsRaw.length, 'samples');
-        oscilloscopeRef.current.clear();
-        oscilloscopeRef.current.render(xFull, yFull, { mirror: false, widths: widthsFull });
-      } else {
-        console.warn('[showcase] sessionAmps too short — using live canvas as-is');
-      }
-    }
-
-    // 4. 알파 투명 이미지 캡처 (실패 시 원본 이미지로 fallback)
-    if (canvasGLRef.current) {
-      try {
-        const alphaDataUrl = await toAlphaPng(canvasGLRef.current);
-        setShowcaseImage(alphaDataUrl);
-      } catch (e) {
-        console.error('Alpha conversion failed, using opaque fallback:', e);
+    // 3. sound wave print 렌더 — 별도 Canvas 2D 라인 아트 엔진 (dood.al과 독립)
+    //   레퍼런스 룩: 얇은 솔리드 수직 라인, 진폭 비례 높이, 트리거 단어 구간만 고유 색.
+    //   스냅샷 ref에 저장 → 튜닝 패널 슬라이더 변경 시 재렌더에 재사용
+    if (engineRef.current) {
+      const amps = engineRef.current.getSessionAmps().slice();
+      const hues = engineRef.current.getSessionHues().slice();
+      if (amps.length >= 4) {
+        printSnapshotRef.current = { amps, hues, fallbackHue: oscHue };
         try {
-          setShowcaseImage(canvasGLRef.current.toDataURL('image/png'));
-        } catch {}
+          const printDataUrl = renderSoundWavePrint(amps, hues, oscHue, printParams);
+          setShowcaseImage(printDataUrl);
+        } catch (e) {
+          console.error('[showcase] soundwave print render failed:', e);
+        }
+      } else {
+        console.warn('[showcase] sessionAmps too short — no print generated');
       }
     }
 
@@ -803,15 +978,15 @@ export default function SoundCanvas() {
     setPhase('showcase');
     setIsUploading(true);
 
-    // 5. 10초 후 idle 자동 복귀 (업로드 완료 여부와 독립)
-    showcaseTimerRef.current = window.setTimeout(() => {
-      resetAll();
-    }, SHOWCASE_DURATION_MS);
+    // 5. idle 자동 복귀 타이머는 phase + showPrintPanel 기반 useEffect에서 관리
+    //    (튜닝 패널 열려있으면 자동 정지)
 
     // 6. 백그라운드 업로드 — 완료 시 QR 교체
+    //    휴대폰 다운로드는 세로 sound wave print(흰 배경)로 렌더 — 9차 합의 "프레임+다운로드 이미지 흰 배경" 준수
     try {
-      if (canvasGLRef.current) engineRef.current.setPortraitFromGL(canvasGLRef.current);
-      const dataUrl = engineRef.current.toPortraitDataURL();
+      const snap = printSnapshotRef.current;
+      if (!snap) throw new Error('print snapshot missing');
+      const dataUrl = renderSoundWavePrintPortrait(snap.amps, snap.hues, snap.fallbackHue, printParams);
       const imgUrl = await uploadToImgbb(dataUrl);
       const viewerUrl = `${QR_VIEWER_BASE}?img=${encodeURIComponent(imgUrl)}`;
       setQrData({ url: viewerUrl, countdown: Math.round(SHOWCASE_DURATION_MS / 1000) });
@@ -821,7 +996,43 @@ export default function SoundCanvas() {
       setIsUploading(false);
       qrBusyRef.current = false;
     }
-  }, [resetAll]);
+  }, [resetAll, oscHue, printParams]);
+
+  // showcase phase에서 printParams 바뀌면 즉시 재렌더 (스냅샷 재사용)
+  useEffect(() => {
+    if (phase !== 'showcase') return;
+    const snap = printSnapshotRef.current;
+    if (!snap) return;
+    try {
+      const dataUrl = renderSoundWavePrint(snap.amps, snap.hues, snap.fallbackHue, printParams);
+      setShowcaseImage(dataUrl);
+    } catch (e) {
+      console.error('[printTuning] re-render failed:', e);
+    }
+  }, [phase, printParams]);
+
+  const handlePrintParamsChange = useCallback((next: PrintParams) => {
+    setPrintParams(next);
+    savePrintParams(next);
+  }, []);
+  const handlePrintParamsReset = useCallback(() => {
+    setPrintParams({ ...DEFAULT_PRINT_PARAMS });
+    savePrintParams({ ...DEFAULT_PRINT_PARAMS });
+  }, []);
+
+  // 튜닝 패널 열려있으면 showcase 자동 idle 복귀 타이머 정지 (여유롭게 만지게)
+  // 닫으면 그 시점부터 20초 타이머 재시작 — 해민이 의식적으로 닫아야 idle로
+  useEffect(() => {
+    if (phase !== 'showcase') return;
+    if (showPrintPanel) {
+      clearTimeout(showcaseTimerRef.current);
+      return;
+    }
+    clearTimeout(showcaseTimerRef.current);
+    showcaseTimerRef.current = window.setTimeout(() => {
+      resetAll();
+    }, SHOWCASE_DURATION_MS);
+  }, [phase, showPrintPanel, resetAll]);
 
   // loop()이 최신 enterShowcase 참조하도록 ref 동기화
   useEffect(() => {
@@ -871,9 +1082,20 @@ export default function SoundCanvas() {
       // O key: 오실로스코프 튜닝 패널 토글 (listening 중에만)
       if (e.code === 'KeyO' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
         if ((e.target as HTMLElement).tagName === 'INPUT') return;
+        console.log('[key O]', { phase, isKioskMode, willToggle: phase === 'listening' });
         if (phase === 'listening') {
           e.preventDefault();
           setShowOscPanel(prev => !prev);
+        }
+        return;
+      }
+      // P key: 사운드웨이브 프린트 튜닝 패널 토글 (showcase 중에만)
+      if (e.code === 'KeyP' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+        if ((e.target as HTMLElement).tagName === 'INPUT') return;
+        console.log('[key P]', { phase, isKioskMode, willToggle: phase === 'showcase' });
+        if (phase === 'showcase') {
+          e.preventDefault();
+          setShowPrintPanel(prev => !prev);
         }
         return;
       }
@@ -1069,7 +1291,9 @@ export default function SoundCanvas() {
           inset: 0,
           width: '100vw',
           height: '100vh',
-          display: phase === 'listening' ? 'block' : 'none',
+          // showcase 단계에도 block 유지 — spectrogram freeze 이미지가 배경에 깔려
+          // showcase 흰 프레임 UI가 opacity 0→100으로 디졸브하는 동안 중간 공백 없이 자연스럽게 크로스페이드됨
+          display: phase === 'listening' || phase === 'showcase' ? 'block' : 'none',
           backgroundColor: '#000000',
         }}
       />
@@ -1367,7 +1591,7 @@ export default function SoundCanvas() {
         </div>
       )}
 
-      {phase === 'listening' && !isKioskMode && (
+      {phase === 'listening' && (
         <OscilloscopePanel
           oscilloscope={oscilloscopeRef.current}
           visible={showOscPanel}
@@ -1385,11 +1609,21 @@ export default function SoundCanvas() {
         />
       )}
 
+      {phase === 'showcase' && (
+        <PrintTuningPanel
+          visible={showPrintPanel}
+          onClose={() => setShowPrintPanel(false)}
+          params={printParams}
+          onChange={handlePrintParamsChange}
+          onReset={handlePrintParamsReset}
+        />
+      )}
+
       {phase === 'listening' && (
         <div className="absolute inset-0 pointer-events-none z-20">
           <div className="absolute bottom-14 left-1/2 -translate-x-1/2 text-center px-8">
-            <div className="text-[18px] font-light tracking-[0.2em] text-foreground/90 text-glow">너의 목소리를 들려줘</div>
-            <div className="text-[12px] text-muted-foreground/70 tracking-[0.25em] mt-1">Let me hear your voice</div>
+            <div className="text-[18px] font-light tracking-[0.2em] text-foreground/90 text-glow">당신의 목소리를 남겨보세요</div>
+            <div className="text-[12px] text-muted-foreground/70 tracking-[0.25em] mt-1">Your voice, your trace</div>
           </div>
         </div>
       )}
@@ -1427,21 +1661,18 @@ export default function SoundCanvas() {
         </div>
       )}
 
-      {/* Showcase — 체험 종료 후 인화사진 프레임 전면 노출 (9차 합의 ⭐ "흰 배경 목표 약속")
-          LED 전체 흰 배경 10초 → 매트 보드(크림) + 얇은 검정 외곽선 + 인쇄물 = 3겹 전시 프레임 */}
+      {/* Showcase — 체험 종료 후 인화사진 프레임 전면 노출 (9차 합의)
+          프레임 밖은 검정(LED 갤러리 벽), 액자 프레임은 검정 테두리, 내부 인쇄물은 흰색 */}
       {phase === 'showcase' && (
-        <div className="absolute inset-0 z-50 bg-white flex flex-col items-center justify-center p-16">
+        <div className="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center p-16 animate-in fade-in duration-700">
           <div className="relative flex-1 w-full flex items-center justify-center min-h-0">
             <div
               className="relative flex items-center justify-center max-w-[84vw] max-h-full"
               style={{
                 background: '#ffffff',
-                // 3겹 레이어: 얇은 검정 키라인 → 크림 매트 → 흰 인쇄물
                 padding: '56px 56px 140px 56px',
-                boxShadow: '0 30px 90px rgba(0,0,0,0.18), 0 8px 24px rgba(0,0,0,0.08)',
-                border: '14px solid #f5f1e8',
-                outline: '1px solid rgba(20,20,20,0.22)',
-                outlineOffset: '-14px',
+                boxShadow: '0 30px 90px rgba(0,0,0,0.6)',
+                border: '14px solid #000000',
               }}
             >
               {showcaseImage && (
@@ -1471,8 +1702,8 @@ export default function SoundCanvas() {
             </div>
           </div>
           <div className="mt-8 text-center">
-            <p className="text-neutral-700 text-[14px] tracking-[0.25em]">핸드폰으로 QR을 스캔해 내 기록을 저장해 보세요</p>
-            <p className="text-neutral-400 text-[10px] tracking-[0.25em] mt-1.5">잠시 후 초기 화면으로 돌아갑니다</p>
+            <p className="text-white/80 text-[14px] tracking-[0.25em]">핸드폰으로 QR을 스캔해 내 기록을 저장해 보세요</p>
+            <p className="text-white/40 text-[10px] tracking-[0.25em] mt-1.5">잠시 후 초기 화면으로 돌아갑니다</p>
           </div>
         </div>
       )}

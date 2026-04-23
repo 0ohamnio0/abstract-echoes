@@ -100,7 +100,7 @@ float erf(float x) {
   x *= x;
   return s - s / (x * x);
 }
-// dood.al getColourFromHue 1:1 재구현 (CPU 쪽 getColourFromHue와 같은 곡선)
+// dood.al getColourFromHue 1:1 재구현 (CPU 쪽 getColourFromHue와 같은 sqrt 곡선)
 vec3 hueToRgb(float hue) {
   float h = mod(hue, 360.0);
   float alpha = mod(h / 120.0, 1.0);
@@ -338,6 +338,8 @@ export class Oscilloscope {
 
   // 9차 합의 "쉐입 집중" 방향 해민 튜닝값. OscilloscopePanel useState 초기값과 동기화.
   // kiosk 모드(패널 미마운트)에서도 동일 값 보장 — 세팅 모드/키오스크 모드 간 차이 제거.
+  // saturation/lightness — coolors 팔레트 톤(warm biased, retro mid-century) 평균치
+  // HSL 전환 전 검증된 튜닝값(deae517 기준). HSL 실험은 본판 느낌 훼손으로 롤백.
   public params: Required<OscilloscopeParams> = {
     mainGain: 0.3,
     exposureStops: -1.4,
