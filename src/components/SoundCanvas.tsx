@@ -6,7 +6,7 @@ import { GenerativeEngine } from '@/lib/generativeEngine';
 import { InstrumentEngine } from '@/lib/instrumentEngine';
 import { Oscilloscope, waveformFloatToXY } from '@/lib/oscilloscope';
 import { createDefaultParams, extractValues, TuningParams, ParamDef } from '@/lib/tuningParams';
-import { SpeechTrigger, TriggerWord } from '@/lib/speechTrigger';
+import { SpeechTrigger } from '@/lib/speechTrigger';
 import TuningPanel from './TuningPanel';
 import OscilloscopePanel, { type SignalGenSettings } from './OscilloscopePanel';
 
@@ -160,7 +160,56 @@ const INTRO_BEAST_CONFIG = [
   },
 ] as const;
 
-type Phase = 'idle' | 'intro' | 'listening';
+type Phase = 'idle' | 'intro' | 'listening' | 'showcase';
+
+// Showcase: 체험 종료 후 LED 전면에 프레임화된 결과를 10초 노출하는 단계
+// (a) 30초 cap 도달 자동 진입  (b) B 버튼 조기 종료
+const SHOWCASE_DURATION_MS = 20_000;
+
+/**
+ * 오실로스코프 WebGL 캔버스를 "파형만 알파 채널로 분리된 투명 PNG"로 변환.
+ * 검은 배경(+ phosphor grain)은 alpha 0, 밝은 파형은 불투명. 프레임 배경이 흰/검 무관.
+ */
+async function toAlphaPng(gl: HTMLCanvasElement): Promise<string> {
+  const rgbaDataUrl = gl.toDataURL('image/png');
+  const img = new Image();
+  await new Promise<void>((res, rej) => {
+    img.onload = () => res();
+    img.onerror = () => rej(new Error('image load failed'));
+    img.src = rgbaDataUrl;
+  });
+  const c = document.createElement('canvas');
+  c.width = gl.width;
+  c.height = gl.height;
+  const ctx = c.getContext('2d');
+  if (!ctx) throw new Error('2d context unavailable');
+  ctx.drawImage(img, 0, 0);
+  const imageData = ctx.getImageData(0, 0, c.width, c.height);
+  const data = imageData.data;
+  // "찐한 색" — gamma 0.45로 약한 값 boost, threshold 이상은 빠르게 불투명에 수렴
+  // 동시에 rgb도 저조도 구간 boost해서 투명 이미지에서도 솔리드 컬러 유지
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+    if (luma < 6) {
+      data[i + 3] = 0;
+      continue;
+    }
+    // gamma boost alpha
+    const alphaNorm = Math.pow(luma / 255, 0.45);
+    data[i + 3] = Math.min(255, Math.round(alphaNorm * 280));
+    // rgb도 같은 gamma로 끌어올려 약한 라인도 진한 컬러로
+    const rgbGain = Math.pow(Math.max(r, g, b) / 255, 0.45);
+    const rgbScale = rgbGain === 0 ? 1 : rgbGain / (Math.max(r, g, b) / 255);
+    data[i] = Math.min(255, Math.round(r * rgbScale));
+    data[i + 1] = Math.min(255, Math.round(g * rgbScale));
+    data[i + 2] = Math.min(255, Math.round(b * rgbScale));
+  }
+  ctx.putImageData(imageData, 0, 0);
+  return c.toDataURL('image/png');
+}
 
 // 동물 SVG ↔ 사운드 매핑 (intro-stack-1~4 순서, INTRO_BEAST_CONFIG의 등장 순서와는 별개)
 const BEAST_AUDIO: Record<string, string> = {
@@ -205,6 +254,58 @@ export default function SoundCanvas() {
     introAudioCacheRef.current = cache;
   }, []);
 
+  /**
+   * 트리거 단어 인식 시 재생하는 짧은 하모니움 톤 (D안 악기 결 맞춤).
+   * InstrumentEngine의 당나귀=하모니움 PeriodicWave [1, 0.3, 0.1] 차용,
+   * A 마이너 펜타토닉 (A4/C5/D5/E5/G5) 중 랜덤 한 음. 따뜻한 sine 중심 톤.
+   */
+  const playChime = useCallback(() => {
+    try {
+      let ctx = chimeCtxRef.current;
+      if (!ctx) {
+        const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        if (!AC) return;
+        ctx = new AC();
+        chimeCtxRef.current = ctx;
+      }
+      if (ctx.state === 'suspended') void ctx.resume();
+      const now = ctx.currentTime;
+
+      // 하모니움 톤 — sine + 약한 옥타브 + 3rd harmonic
+      const real = new Float32Array([0, 1, 0.3, 0.1]);
+      const imag = new Float32Array([0, 0, 0, 0]);
+      const wave = ctx.createPeriodicWave(real, imag, { disableNormalization: false });
+
+      // A 마이너 펜타토닉 중 랜덤
+      const pentatonic = [440, 523.25, 587.33, 659.25, 783.99];
+      const freq = pentatonic[Math.floor(Math.random() * pentatonic.length)];
+
+      const osc = ctx.createOscillator();
+      osc.setPeriodicWave(wave);
+      osc.frequency.value = freq;
+
+      // 부드러운 low-pass로 상단 배음 다듬기
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 2600;
+      filter.Q.value = 0.7;
+
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.13, now + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.9);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 1.0);
+    } catch (e) {
+      console.warn('tone playback failed', e);
+    }
+  }, []);
+
   const playBeastAudio = useCallback((svg: string) => {
     const a = introAudioCacheRef.current[svg];
     if (!a) return;
@@ -229,11 +330,14 @@ export default function SoundCanvas() {
   const [threshold, setThreshold] = useState(0.06);
   const [showSettings, setShowSettings] = useState(false);
   const [showTuning, setShowTuning] = useState(false);
-  const [isKioskMode, setIsKioskMode] = useState(false);
+  const [isKioskMode, setIsKioskMode] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return !new URLSearchParams(window.location.search).has('settings');
+  });
   const [modeIndicator, setModeIndicator] = useState(false);
   const [tuningParams, setTuningParams] = useState<TuningParams>(loadParams);
-  const [triggerDisplay, setTriggerDisplay] = useState<{ word: TriggerWord; text: string } | null>(null);
-  const triggerTimerRef = useRef<number>(0);
+  // 청각 이스터에그 — 트리거 단어 인식 시 짧은 bell chime. 시각 텍스트는 숨김.
+  const chimeCtxRef = useRef<AudioContext | null>(null);
   const debugFrameRef = useRef(0);
   const [stackStage, setStackStage] = useState<StackStage>(measureStackStage);
   const [showSaveMenu, setShowSaveMenu] = useState(false);
@@ -243,6 +347,13 @@ export default function SoundCanvas() {
   const [isUploading, setIsUploading] = useState(false);
   const qrBusyRef = useRef(false);
   const qrTimerRef = useRef<number>(0);
+
+  // Showcase state — 체험 종료 후 프레임화 전면 노출
+  const [showcaseImage, setShowcaseImage] = useState<string | null>(null);
+  const [showcaseTimestamp, setShowcaseTimestamp] = useState<Date | null>(null);
+  const showcaseTimerRef = useRef<number>(0);
+  // loop()이 stale closure 안 타도록 enterShowcase를 ref로 경유 호출
+  const enterShowcaseRef = useRef<() => void>(() => {});
 
   const [showDebugUI, setShowDebugUI] = useState(false);
   const [sessionCapped, setSessionCapped] = useState(false);
@@ -373,8 +484,11 @@ export default function SoundCanvas() {
               }
             }
 
-            if (oscSwapXYRef.current) oscilloscopeRef.current.render(yBuf, xBuf);
-            else oscilloscopeRef.current.render(xBuf, yBuf);
+            // 상하 대칭(β) — 중앙선 기준 양쪽 균등 위해 y 0.5배 스케일 후 mirror 옵션으로 y/-y 둘 다 렌더
+            const yScaled = new Float32Array(yBuf.length);
+            for (let i = 0; i < yBuf.length; i++) yScaled[i] = yBuf[i] * 0.5;
+            if (oscSwapXYRef.current) oscilloscopeRef.current.render(yScaled, xBuf, { mirror: true });
+            else oscilloscopeRef.current.render(xBuf, yScaled, { mirror: true });
           }
         }
       }
@@ -392,6 +506,12 @@ export default function SoundCanvas() {
       setYamnetLabel(features.yamnetLabel || '');
       setYamnetConfidence(features.yamnetConfidence || 0);
       setSessionCapped(engine.isSessionCapped());
+    }
+
+    // 30초 cap 자동 종료 — 9차 합의. enterShowcase가 cancelAnimationFrame까지 처리
+    if (engine.isSessionCapped() && !qrBusyRef.current) {
+      enterShowcaseRef.current();
+      return;
     }
 
     animFrameRef.current = requestAnimationFrame(loop);
@@ -445,19 +565,8 @@ export default function SoundCanvas() {
 
       const speech = new SpeechTrigger(event => {
         engineRef.current?.triggerSpecialEvent(event.word);
-        clearTimeout(triggerTimerRef.current);
-        const emojiMap: Record<string, string> = {
-          love: '❤️',
-          hello: '👋',
-          happy: '🌈',
-          wow: '🎆',
-          thanks: '🙏',
-          sorry: '💧',
-          missyou: '💜',
-        };
-        const emoji = emojiMap[event.word] || '✨';
-        setTriggerDisplay({ word: event.word, text: `${emoji} "${event.transcript}"` });
-        triggerTimerRef.current = window.setTimeout(() => setTriggerDisplay(null), 2500);
+        // 청각 이스터에그: 인식됨을 짧은 bell chime으로만 피드백 (시각 텍스트는 숨김)
+        playChime();
       });
       speech.start();
       speechRef.current = speech;
@@ -480,7 +589,7 @@ export default function SoundCanvas() {
       setIntroStep(0);
       setIsActive(false);
     }
-  }, [loop, sensitivity, threshold, tuningParams]);
+  }, [loop, sensitivity, threshold, tuningParams, playChime]);
 
   const stopMic = useCallback(() => {
     cancelAnimationFrame(animFrameRef.current);
@@ -547,48 +656,126 @@ export default function SoundCanvas() {
     engineRef.current?.clear();
   }, []);
 
-  /** Full reset: stop mic, clear QR, return to idle */
+  /** Full reset: stop mic, clear showcase/QR, return to idle */
   const resetAll = useCallback(() => {
+    clearTimeout(showcaseTimerRef.current);
     clearInterval(qrTimerRef.current);
     setQrData(null);
     setIsUploading(false);
     setShowSaveMenu(false);
+    setShowcaseImage(null);
+    setShowcaseTimestamp(null);
     qrBusyRef.current = false;
     stopMic();
     clear();
   }, [stopMic, clear]);
 
-  /** Upload portrait image to imgbb and show QR code */
-  const shareQr = useCallback(async () => {
+  /**
+   * 체험 종료 → 10초 showcase phase 진입.
+   * (a) 30초 cap 자동 도달, (b) B 버튼 조기 종료 — 두 분기 모두 이 함수로 수렴.
+   *
+   * 흐름: draw loop 정지 → oscilloscope freeze → 알파 투명 이미지 캡처
+   *   → showcase phase 전환 → 백그라운드 업로드 → QR 표시
+   *   → 10초 후 resetAll (idle 복귀)
+   */
+  const enterShowcase = useCallback(async () => {
     if (qrBusyRef.current || !engineRef.current) return;
     qrBusyRef.current = true;
+
+    // 1. draw loop 정지 + oscilloscope freeze (canvas 내용 보존)
+    cancelAnimationFrame(animFrameRef.current);
+    oscFreezeRef.current = true;
+    setOscFreeze(true);
+
+    // 2. mic/analyzer/speech/instrument stop — canvas는 안 건드림
+    analyzerRef.current?.stop();
+    speechRef.current?.stop();
+    instrumentRef.current?.stop();
+
+    // 3. γ — sessionAmps 기반 "체험 전체" 정적 waveform 재렌더
+    //   spectrogram-like: 각 bucket의 peak를 수직 stroke pair(x,-peak)→(x,+peak)로 그려
+    //   라인 한 줄 한 줄이 구분되는 룩 (이미지 #10 레퍼런스). 인접 stroke 간 대각선은
+    //   polyline 특성상 envelope으로 나타남 — 자연스러운 보조 효과.
+    if (oscilloscopeRef.current && engineRef.current) {
+      const ampsRaw = engineRef.current.getSessionAmps();
+      if (ampsRaw.length >= 4) {
+        // 수직 stroke 개수. 1720 LED에서 간격 ~4px 정도가 시각 분리에 적당.
+        const STROKE_COUNT = Math.min(420, Math.floor(ampsRaw.length / 6));
+        const xStart = -0.98;
+        const xEnd = 0.98;
+        const AMP_BOOST = 2.4;
+        const PEAK_CLAMP = 0.92;
+
+        const N = STROKE_COUNT * 2;
+        const xFull = new Float32Array(N);
+        const yFull = new Float32Array(N);
+        const bucketSize = ampsRaw.length / STROKE_COUNT;
+        for (let b = 0; b < STROKE_COUNT; b++) {
+          const start = Math.floor(b * bucketSize);
+          const end = Math.min(ampsRaw.length, Math.floor((b + 1) * bucketSize));
+          let maxAbs = 0;
+          for (let j = start; j < end; j++) {
+            const a = Math.abs(ampsRaw[j] ?? 0);
+            if (a > maxAbs) maxAbs = a;
+          }
+          const peak = Math.min(PEAK_CLAMP, maxAbs * AMP_BOOST);
+          const x = xStart + (b / Math.max(1, STROKE_COUNT - 1)) * (xEnd - xStart);
+          const base = 2 * b;
+          xFull[base] = x;
+          yFull[base] = -peak;
+          xFull[base + 1] = x;
+          yFull[base + 1] = peak;
+        }
+        console.log('[showcase] strokes:', STROKE_COUNT, 'from', ampsRaw.length, 'samples');
+        oscilloscopeRef.current.clear();
+        oscilloscopeRef.current.render(xFull, yFull, { mirror: false });
+      } else {
+        console.warn('[showcase] sessionAmps too short — using live canvas as-is');
+      }
+    }
+
+    // 4. 알파 투명 이미지 캡처 (실패 시 원본 이미지로 fallback)
+    if (canvasGLRef.current) {
+      try {
+        const alphaDataUrl = await toAlphaPng(canvasGLRef.current);
+        setShowcaseImage(alphaDataUrl);
+      } catch (e) {
+        console.error('Alpha conversion failed, using opaque fallback:', e);
+        try {
+          setShowcaseImage(canvasGLRef.current.toDataURL('image/png'));
+        } catch {}
+      }
+    }
+
+    // 4. showcase phase 전환 (업로드 완료 전에 즉시 — UI는 spinner 먼저 노출)
+    setShowcaseTimestamp(new Date());
+    setPhase('showcase');
     setIsUploading(true);
-    clearInterval(qrTimerRef.current);
-    setQrData(null);
+
+    // 5. 10초 후 idle 자동 복귀 (업로드 완료 여부와 독립)
+    showcaseTimerRef.current = window.setTimeout(() => {
+      resetAll();
+    }, SHOWCASE_DURATION_MS);
+
+    // 6. 백그라운드 업로드 — 완료 시 QR 교체
     try {
       if (canvasGLRef.current) engineRef.current.setPortraitFromGL(canvasGLRef.current);
       const dataUrl = engineRef.current.toPortraitDataURL();
       const imgUrl = await uploadToImgbb(dataUrl);
       const viewerUrl = `${QR_VIEWER_BASE}?img=${encodeURIComponent(imgUrl)}`;
-      setQrData({ url: viewerUrl, countdown: 60 });
-      qrTimerRef.current = window.setInterval(() => {
-        setQrData(prev => {
-          if (!prev) return null;
-          if (prev.countdown <= 1) {
-            clearInterval(qrTimerRef.current);
-            resetAll();
-            return null;
-          }
-          return { ...prev, countdown: prev.countdown - 1 };
-        });
-      }, 1000);
+      setQrData({ url: viewerUrl, countdown: Math.round(SHOWCASE_DURATION_MS / 1000) });
     } catch (e) {
-      console.error('QR share failed:', e);
+      console.error('Showcase upload failed:', e);
     } finally {
-      qrBusyRef.current = false;
       setIsUploading(false);
+      qrBusyRef.current = false;
     }
   }, [resetAll]);
+
+  // loop()이 최신 enterShowcase 참조하도록 ref 동기화
+  useEffect(() => {
+    enterShowcaseRef.current = () => { void enterShowcase(); };
+  }, [enterShowcase]);
 
   const downloadDataUrl = useCallback((dataUrl: string, suffix: string) => {
     const link = document.createElement('a');
@@ -639,17 +826,14 @@ export default function SoundCanvas() {
         }
         return;
       }
-      // B key: idle → start experience / listening → QR share / QR showing → reset
+      // B key (페달): idle → 체험 시작 / listening → showcase 조기 진입 / showcase → idle 복귀
       if ((e.code === 'KeyB' && !e.ctrlKey && !e.shiftKey && !e.altKey)) {
         if ((e.target as HTMLElement).tagName === 'INPUT') return;
         e.preventDefault();
-        if (isActive) {
-          // listening mode
-          if (isUploading || qrData) {
-            resetAll();
-          } else {
-            shareQr();
-          }
+        if (phase === 'listening') {
+          void enterShowcase();
+        } else if (phase === 'showcase') {
+          resetAll();
         } else if (phase === 'idle') {
           startExperience();
         }
@@ -682,7 +866,7 @@ export default function SoundCanvas() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [phase, isActive, isUploading, qrData, startExperience, stopMic, clear, clearIntroTimers, resetAll, shareQr]);
+  }, [phase, startExperience, stopMic, clearIntroTimers, resetAll, enterShowcase]);
 
   useEffect(() => {
     return () => {
@@ -690,9 +874,10 @@ export default function SoundCanvas() {
       cancelAnimationFrame(idleAnimFrameRef.current);
       analyzerRef.current?.stop();
       speechRef.current?.stop();
-      clearTimeout(triggerTimerRef.current);
       clearTimeout(modeIndicatorTimerRef.current);
       clearInterval(qrTimerRef.current);
+      clearTimeout(showcaseTimerRef.current);
+      chimeCtxRef.current?.close().catch(() => {});
     };
   }, []);
 
@@ -1151,18 +1336,10 @@ export default function SoundCanvas() {
 
       {phase === 'listening' && (
         <div className="absolute inset-0 pointer-events-none z-20">
-          {sessionCapped ? (
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center px-8">
-              <div className="text-[22px] font-light tracking-[0.2em] text-foreground/90 text-glow">세션이 가득 찼어요</div>
-              <div className="text-[13px] text-muted-foreground/70 tracking-[0.25em] mt-2">잠시 쉬었다가 다시 들려주세요</div>
-              <div className="text-[11px] text-muted-foreground/50 tracking-[0.25em] mt-1">Session full — take a breath, then speak again</div>
-            </div>
-          ) : (
-            <div className="absolute bottom-14 left-1/2 -translate-x-1/2 text-center px-8">
-              <div className="text-[18px] font-light tracking-[0.2em] text-foreground/90 text-glow">너의 목소리를 들려줘</div>
-              <div className="text-[12px] text-muted-foreground/70 tracking-[0.25em] mt-1">Let me hear your voice</div>
-            </div>
-          )}
+          <div className="absolute bottom-14 left-1/2 -translate-x-1/2 text-center px-8">
+            <div className="text-[18px] font-light tracking-[0.2em] text-foreground/90 text-glow">너의 목소리를 들려줘</div>
+            <div className="text-[12px] text-muted-foreground/70 tracking-[0.25em] mt-1">Let me hear your voice</div>
+          </div>
         </div>
       )}
 
@@ -1193,46 +1370,56 @@ export default function SoundCanvas() {
         </div>
       )}
 
-      {triggerDisplay && (
-        <div className="absolute top-6 left-6 pointer-events-none z-40 max-w-[min(90vw,520px)] animate-in fade-in slide-in-from-left-2 duration-300">
-          <div className="text-left text-base sm:text-lg font-light tracking-wide text-foreground/95 text-glow px-4 py-3 bg-card/40 backdrop-blur-md rounded-lg border border-border/40 shadow-lg">
-            {triggerDisplay.text}
-          </div>
-        </div>
-      )}
-
       {showDebugUI && modeIndicator && (
         <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 px-5 py-2 bg-card/80 backdrop-blur border border-border rounded-full text-xs tracking-widest uppercase text-muted-foreground animate-in fade-in duration-200">
           {isKioskMode ? '🖥 전시 모드' : '⚙ 세팅 모드'}
         </div>
       )}
 
-{/* QR share overlay */}
-      {(isUploading || qrData) && (
-        <div className="absolute bottom-6 right-6 z-50">
-          {isUploading ? (
-            <div className="bg-card/90 backdrop-blur border border-border rounded-xl p-5 flex flex-col items-center gap-3">
-              <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-              <span className="text-xs text-muted-foreground tracking-widest">업로드 중...</span>
-            </div>
-          ) : qrData && (
-            <div className="bg-card/90 backdrop-blur border border-border rounded-xl p-4 flex flex-col items-center gap-2">
-              <p className="text-[10px] text-muted-foreground tracking-widest uppercase mb-1">폰으로 스캔하여 저장</p>
-              <div className="bg-white p-2 rounded-lg">
-                <QRCodeSVG value={qrData.url} size={160} />
+      {/* Showcase — 체험 종료 후 액자 전면 노출 (9차 합의, 레퍼런스 룩 롤백)
+          크림 얇은 테두리 + 액자 내부 우하단 QR 서명 */}
+      {phase === 'showcase' && (
+        <div className="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center p-16">
+          <div className="relative flex-1 w-full flex items-center justify-center min-h-0">
+            <div
+              className="relative bg-white flex items-center justify-center max-w-[82vw] max-h-full"
+              style={{
+                padding: '48px 48px 132px 48px',
+                boxShadow: '0 24px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)',
+                border: '10px solid #f5f2ea',
+                outline: '1px solid rgba(0,0,0,0.15)',
+              }}
+            >
+              {showcaseImage && (
+                <img
+                  src={showcaseImage}
+                  alt="체험 결과"
+                  className="object-contain"
+                  style={{ maxWidth: '100%', maxHeight: '62vh' }}
+                />
+              )}
+              {/* 액자 내부 우하단 QR 서명 블록 */}
+              <div className="absolute bottom-5 right-5 flex items-center gap-3">
+                <div className="text-right">
+                  <p className="text-neutral-600 text-[10px] tracking-[0.25em] uppercase">Scan to save</p>
+                  <p className="text-neutral-400 text-[9px] tracking-[0.2em] mt-0.5">BREMEN BACKYARD</p>
+                </div>
+                {!qrData || isUploading ? (
+                  <div className="bg-white border border-neutral-200 p-2 flex items-center justify-center w-[96px] h-[96px]">
+                    <div className="w-6 h-6 border-2 border-neutral-400 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : (
+                  <div className="bg-white border border-neutral-200 p-2">
+                    <QRCodeSVG value={qrData.url} size={80} />
+                  </div>
+                )}
               </div>
-              <p className="text-xs text-muted-foreground font-mono">{qrData.countdown}초 후 사라짐</p>
-              {/* DEBUG: PC에서 결과 확인용. 설치 전 제거 */}
-              <a
-                href={qrData.url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-[10px] text-primary underline hover:opacity-80"
-              >
-                PC에서 열기 ↗
-              </a>
             </div>
-          )}
+          </div>
+          <div className="mt-8 text-center">
+            <p className="text-white/80 text-[14px] tracking-[0.25em]">핸드폰으로 QR을 스캔해 내 기록을 저장해 보세요</p>
+            <p className="text-white/40 text-[10px] tracking-[0.25em] mt-1.5">잠시 후 초기 화면으로 돌아갑니다</p>
+          </div>
         </div>
       )}
     </div>

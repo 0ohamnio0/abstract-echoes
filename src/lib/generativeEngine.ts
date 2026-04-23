@@ -110,7 +110,7 @@ class SessionColorTracker {
 }
 
 // ── 타임라인 상수 ─────────────────────────────────────────────────
-const SESSION_CAP_MS = 600_000;   // 10분 상한
+const SESSION_CAP_MS = 30_000;   // 30초 — 9차 합의: cap 도달 시 showcase phase 자동 진입
 const LIVE_PORTION = 0.6;          // 화면 오른쪽 라이브 영역 비율 (최근 3초)
 const LIVE_WINDOW_MS = 3000;      // 라이브 영역에 매핑되는 최근 시간
 const DOWNSAMPLE_PER_FRAME = 8;   // 프레임당 누적 샘플 개수 (waveform에서 다운샘플)
@@ -296,16 +296,14 @@ export class GenerativeEngine {
 
     if (f.isSpeaking) this.lastVoiceAt = now;
 
-    if (this.sessionActive && now - this.lastVoiceAt > gapMs) {
-      this.portraitCursorY += 24;
-      this.sessionActive = false;
-    }
-    if (f.isSpeaking && !this.sessionActive) {
+    // 9차 합의: 한 사이클 = 한 engine 인스턴스 구조라 silence gap 기반 session reset 불필요.
+    // 체험 시작(첫 update)부터 cap까지 매 프레임 sessionAmps push — silence 구간도 연속 기록되어
+    // showcase에서 30초 전체 waveform이 가로 전역에 균등 분포됨 (침묵은 y≈0)
+    if (!this.sessionActive && !this.sessionCapped) {
       this.sessionActive = true;
       this.sessionAmps = [];
       this.sessionFrameTimes = [];
       this.sessionStartMs = now;
-      this.sessionCapped = false;
     }
 
     if (this.sessionActive && !this.sessionCapped) {

@@ -193,12 +193,10 @@ uniform vec3 uColour;
 varying vec2 vTexCoord;
 varying vec2 vTexCoordCanvas;
 void main (void) {
+  // 9차 합의 — "빛이 아니라 쉐입 자체에 집중": bloom 레이어(tightGlow, scatter, phosphor screen) 모두 제거
+  // 참고용 주석: 복원 시 아래 두 줄 (uTexture1/2/3) 및 screen/tightGlow/scatter sampling 복구
   vec4 line = texture2D(uTexture0, vTexCoordCanvas);
-  vec4 screen = texture2D(uTexture3, vTexCoord);
-  vec4 tightGlow = texture2D(uTexture1, vTexCoord);
-  vec4 scatter = texture2D(uTexture2, vTexCoord)+0.35;
-  float light = line.r + 1.5*screen.g*screen.g*tightGlow.r;
-  light += 0.4*scatter.g * (2.0+1.0*screen.g + 0.5*screen.r);
+  float light = line.r;
   float tlight = 1.0-pow(2.0, -uExposure*light);
   float tlight2 = tlight*tlight*tlight;
   gl_FragColor.rgb = mix(uColour, vec3(1.0), 0.3+tlight2*tlight2*0.5)*tlight;
@@ -522,19 +520,26 @@ export class Oscilloscope {
   }
 
   // 메인 엔트리: xPoints, yPoints 각각 Float32Array (-1..1 범위)
-  render(xPoints: Float32Array, yPoints: Float32Array) {
+  // mirror=true: 상하 대칭 — 같은 FBO에 y와 -y 두 라인을 fade 없이 누적해 그림 (9차 합의 β)
+  render(xPoints: Float32Array, yPoints: Float32Array, options?: { mirror?: boolean }) {
     if (xPoints.length !== yPoints.length) throw new Error('x/y length mismatch');
     if (xPoints.length < 2) return;
     this.setupArrays(xPoints.length);
-    this.drawLineTexture(xPoints, yPoints);
+    this.drawLineTexture(xPoints, yPoints, options?.mirror ?? false);
     this.drawCRT();
   }
 
-  private drawLineTexture(xPoints: Float32Array, yPoints: Float32Array) {
+  private drawLineTexture(xPoints: Float32Array, yPoints: Float32Array, mirror: boolean) {
     this.fadeAmount = Math.pow(0.5, this.params.persistence) * 0.2 * this.params.bufferSize / 512;
     this.activateTargetTexture(this.lineTexture);
     this.fade();
     this.drawLine(xPoints, yPoints);
+    if (mirror) {
+      // 같은 FBO에 상하 반전 라인 추가 (fade 건너뜀 — 이미 위에서 한 번 수행)
+      const yMirror = new Float32Array(yPoints.length);
+      for (let i = 0; i < yPoints.length; i++) yMirror[i] = -yPoints[i];
+      this.drawLine(xPoints, yMirror);
+    }
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, this.lineTexture);
     gl.generateMipmap(gl.TEXTURE_2D);
