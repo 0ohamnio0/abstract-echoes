@@ -839,6 +839,58 @@ export default function SoundCanvas() {
   }, [stopMic, clear]);
 
   /**
+   * showcase sweep 렌더 — sessionAmps 30s 전체를 oscilloscope에 그려 GL canvas dataURL 반환.
+   *   - PrintParams 적용 (ampScale, widthBase/Boost, lineSizeMul, intensityMul, passes)
+   *   - 호출 직전 oscilloscope.lineSize/intensity 백업 → 적용 → 렌더 → 복원
+   *   - clear() 후 N회 누적 render → 멀티패스 = 풍성
+   *   - 데이터 부족(<4) 시 null 반환
+   */
+  const renderShowcaseSweep = useCallback((params: PrintParams): string | null => {
+    if (!engineRef.current || !oscilloscopeRef.current || !canvasGLRef.current) return null;
+    const amps = engineRef.current.getSessionAmps();
+    const hues = engineRef.current.getSessionHues();
+    if (amps.length < 4) {
+      console.warn('[showcase] sessionAmps too short — no sweep generated');
+      return null;
+    }
+    const N = amps.length;
+    const xSweep = new Float32Array(N);
+    const ySweep = new Float32Array(N);
+    const hueSweep = new Float32Array(N);
+    const widthSweep = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      xSweep[i] = (i / (N - 1)) * 2 - 1;
+      const a = amps[i] ?? 0;
+      ySweep[i] = a * params.ampScale;
+      hueSweep[i] = hues[i] ?? -1;
+      widthSweep[i] = params.widthBase + Math.min(1, Math.abs(a)) * params.widthBoost;
+    }
+    const osc = oscilloscopeRef.current;
+    const savedLineSize = osc.params.lineSize;
+    const savedIntensity = osc.params.intensity;
+    osc.setParam('lineSize', savedLineSize * params.lineSizeMul);
+    osc.setParam('intensity', savedIntensity * params.intensityMul);
+    try {
+      osc.clear();
+      const passes = Math.max(1, Math.min(6, Math.round(params.passes)));
+      for (let p = 0; p < passes; p++) {
+        if (oscSwapXYRef.current) {
+          osc.render(ySweep, xSweep, { mirror: true, hues: hueSweep, widths: widthSweep });
+        } else {
+          osc.render(xSweep, ySweep, { mirror: true, hues: hueSweep, widths: widthSweep });
+        }
+      }
+      return canvasGLRef.current.toDataURL('image/png');
+    } catch (e) {
+      console.error('[showcase] oscilloscope sweep render failed:', e);
+      return null;
+    } finally {
+      osc.setParam('lineSize', savedLineSize);
+      osc.setParam('intensity', savedIntensity);
+    }
+  }, []);
+
+  /**
    * 체험 종료 → 10초 showcase phase 진입.
    * (a) 30초 cap 자동 도달, (b) B 버튼 조기 종료 — 두 분기 모두 이 함수로 수렴.
    *
@@ -860,41 +912,9 @@ export default function SoundCanvas() {
     speechRef.current?.stop();
     instrumentRef.current?.stop();
 
-    // 3. sessionAmps 30초 통합 sweep을 oscilloscope에 한 번 그려 GL canvas 캡처.
-    //   listening sweep window(8s) ≠ session cap(30s)이라 freeze 캡처는 마지막 8초만 보임.
-    //   여기서 clear() 후 30초 amps 전체로 한 번만 render → mirror+hues+widths 그대로,
-    //   fade는 검정 lineTexture × 작은 alpha라 무시 가능.
-    if (engineRef.current && oscilloscopeRef.current && canvasGLRef.current) {
-      const amps = engineRef.current.getSessionAmps();
-      const hues = engineRef.current.getSessionHues();
-      if (amps.length >= 4) {
-        const N = amps.length;
-        const xSweep = new Float32Array(N);
-        const ySweep = new Float32Array(N);
-        const hueSweep = new Float32Array(N);
-        const widthSweep = new Float32Array(N);
-        for (let i = 0; i < N; i++) {
-          xSweep[i] = (i / (N - 1)) * 2 - 1;
-          const a = amps[i] ?? 0;
-          ySweep[i] = a * 0.5;
-          hueSweep[i] = hues[i] ?? -1;
-          widthSweep[i] = 0.7 + Math.min(1, Math.abs(a)) * 1.3;
-        }
-        try {
-          oscilloscopeRef.current.clear();
-          if (oscSwapXYRef.current) {
-            oscilloscopeRef.current.render(ySweep, xSweep, { mirror: true, hues: hueSweep, widths: widthSweep });
-          } else {
-            oscilloscopeRef.current.render(xSweep, ySweep, { mirror: true, hues: hueSweep, widths: widthSweep });
-          }
-          setShowcaseImage(canvasGLRef.current.toDataURL('image/png'));
-        } catch (e) {
-          console.error('[showcase] oscilloscope sweep render failed:', e);
-        }
-      } else {
-        console.warn('[showcase] sessionAmps too short — no sweep generated');
-      }
-    }
+    // 3. sessionAmps 30초 통합 sweep을 oscilloscope에 그려 GL canvas 캡처 (PrintParams 적용).
+    const dataUrl = renderShowcaseSweep(printParams);
+    if (dataUrl) setShowcaseImage(dataUrl);
 
     // 4. showcase phase 전환 (업로드 완료 전에 즉시 — UI는 spinner 먼저 노출)
     setShowcaseTimestamp(new Date());
@@ -921,9 +941,16 @@ export default function SoundCanvas() {
       setIsUploading(false);
       qrBusyRef.current = false;
     }
-  }, [resetAll]);
+  }, [printParams, renderShowcaseSweep]);
 
-  // (4-30) showcase sweep 재렌더 useEffect는 step 2에서 oscilloscope sweep 기반으로 재배선 예정.
+  // showcase phase 진입 후 PrintParams 변경 → live 재렌더 (P 패널 슬라이더 실시간 반영).
+  //   세션 데이터(amps/hues)는 enterShowcase 시점에 engine에 이미 누적된 상태 → 그대로 재사용.
+  //   GL canvas만 다시 그리고 dataURL 재캡처 → showcaseImage 갱신 → 액자 안 이미지 즉시 변경.
+  useEffect(() => {
+    if (phase !== 'showcase') return;
+    const dataUrl = renderShowcaseSweep(printParams);
+    if (dataUrl) setShowcaseImage(dataUrl);
+  }, [phase, printParams, renderShowcaseSweep]);
 
   const handlePrintParamsChange = useCallback((next: PrintParams) => {
     setPrintParams(next);

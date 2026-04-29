@@ -44,8 +44,8 @@ export default function PrintTuningPanel({ visible, onClose, params, onChange, o
       </div>
 
       <div className="mt-3 pt-2 border-t border-black/30 text-[10px] text-black/60 leading-snug">
-        showcase 진입 후 P 키로 토글. 값은 자동 저장.<br />
-        <span className="text-black/40">※ 슬라이더 wiring은 step 2에서 연결 예정.</span>
+        showcase 진입 후 P 키로 토글. 슬라이더 → 액자 안 이미지 실시간 반영.<br />
+        값은 자동 저장. RESET으로 기본값 복귀.
       </div>
     </div>
   );
