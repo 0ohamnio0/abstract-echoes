@@ -633,20 +633,26 @@ export class GenerativeEngine {
     const logoReady = this.logoImg.complete && this.logoImg.naturalWidth > 0;
     const taglineReady = this.taglineImg.complete && this.taglineImg.naturalWidth > 0;
 
+    // rina 4-30 spec (download 화면 로고위치 수정.svg, 1080×2340 viewBox 기준)
+    //   - 로고 폭 55.27 / 1080 = 5.12% (PNG 자연 비율로 높이 자동)
+    //   - 태그라인 폭 426.39 / 1080 = 39.5% (SVG 자연 비율로 높이 자동)
+    //   - 로고 top y = 1686.93 / 2340 = 72.1%, 태그라인 bottom y = 1888.23 / 2340 = 80.7%
     let waveAreaH = h;
     let blockTopY = h;
-    let logoDstW = 0, logoDstH = 0, taglineDstW = 0, taglineDstH = 0, gap = 0;
-    const bottomMargin = Math.round(h * 0.045);
+    let logoDstW = 0, logoDstH = 0, taglineDstW = 0, taglineDstH = 0;
+    let logoDstY = 0, taglineDstY = 0;
     const padAboveLogo = Math.round(h * 0.03); // 로고 위 추가 여백
 
     if (logoReady && taglineReady) {
-      taglineDstW = w * 0.7;
+      taglineDstW = w * (426.39 / 1080);
       taglineDstH = taglineDstW * (this.taglineImg.naturalHeight / this.taglineImg.naturalWidth);
-      logoDstH = taglineDstH * 4;
-      logoDstW = logoDstH * (this.logoImg.naturalWidth / this.logoImg.naturalHeight);
-      gap = taglineDstH * 0.8;
-      const totalH = logoDstH + gap + taglineDstH;
-      blockTopY = h - bottomMargin - totalH;
+      taglineDstY = h * (1888.23 / 2340) - taglineDstH;
+
+      logoDstW = w * (55.27 / 1080);
+      logoDstH = logoDstW * (this.logoImg.naturalHeight / this.logoImg.naturalWidth);
+      logoDstY = h * (1686.93 / 2340);
+
+      blockTopY = logoDstY;
       waveAreaH = blockTopY - padAboveLogo;
     }
 
@@ -666,8 +672,6 @@ export class GenerativeEngine {
     if (logoReady && taglineReady) {
       const logoDstX = (w - logoDstW) / 2;
       const taglineDstX = (w - taglineDstW) / 2;
-      const logoDstY = blockTopY;
-      const taglineDstY = logoDstY + logoDstH + gap;
       o.drawImage(this.logoImg, logoDstX, logoDstY, logoDstW, logoDstH);
       o.drawImage(this.taglineImg, taglineDstX, taglineDstY, taglineDstW, taglineDstH);
     }
