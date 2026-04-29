@@ -21,7 +21,7 @@ export default function PrintTuningPanel({ visible, onClose, params, onChange, o
       style={{ fontFamily: '"Courier New", ui-monospace, monospace', zIndex: 60 }}
     >
       <div className="flex items-center justify-between mb-2 pb-2 border-b border-black/30">
-        <span className="font-bold tracking-wider text-sm">SOUND WAVE PRINT</span>
+        <span className="font-bold tracking-wider text-sm">SHOWCASE SWEEP</span>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -33,28 +33,19 @@ export default function PrintTuningPanel({ visible, onClose, params, onChange, o
         </div>
       </div>
 
-      <Slider label="Stroke count" value={params.strokeCount} min={100} max={500} step={10} onChange={v => set('strokeCount', Math.round(v))} digits={0} />
-      <Slider label="Stroke width" value={params.strokeWidth} min={1} max={8} step={1} onChange={v => set('strokeWidth', Math.round(v))} suffix="px" digits={0} />
+      <Slider label="Amp scale" value={params.ampScale} min={0.2} max={1.5} step={0.05} onChange={v => set('ampScale', v)} digits={2} />
+      <Slider label="Width base" value={params.widthBase} min={0.3} max={2.0} step={0.05} onChange={v => set('widthBase', v)} digits={2} />
+      <Slider label="Width boost" value={params.widthBoost} min={0.5} max={3.0} step={0.05} onChange={v => set('widthBoost', v)} digits={2} />
 
       <div className="mt-3 pt-2 border-t border-black/30">
-        <Slider label="Amp boost" value={params.ampBoost} min={0.5} max={5} step={0.05} onChange={v => set('ampBoost', v)} digits={2} />
-        <Slider label="Peak clamp" value={params.peakClamp} min={0.3} max={1.0} step={0.01} onChange={v => set('peakClamp', v)} digits={2} />
-        <Slider label="Min half-height" value={params.minHalfH} min={0} max={10} step={1} onChange={v => set('minHalfH', Math.round(v))} suffix="px" digits={0} />
-      </div>
-
-      <div className="mt-3 pt-2 border-t border-black/30">
-        <Slider label="Padding X" value={params.padX} min={0} max={0.15} step={0.005} onChange={v => set('padX', v)} suffix="" digits={3} />
-        <Slider label="Padding Y" value={params.padY} min={0} max={0.25} step={0.005} onChange={v => set('padY', v)} suffix="" digits={3} />
-      </div>
-
-      <div className="mt-3 pt-2 border-t border-black/30">
-        <Slider label="Saturation" value={params.saturation} min={0.3} max={1.0} step={0.02} onChange={v => set('saturation', v)} digits={2} />
-        <Slider label="Lightness" value={params.lightness} min={0.2} max={0.8} step={0.02} onChange={v => set('lightness', v)} digits={2} />
+        <Slider label="Line size ×" value={params.lineSizeMul} min={0.5} max={3.0} step={0.05} onChange={v => set('lineSizeMul', v)} digits={2} />
+        <Slider label="Intensity ×" value={params.intensityMul} min={0.5} max={3.0} step={0.05} onChange={v => set('intensityMul', v)} digits={2} />
+        <Slider label="Passes" value={params.passes} min={1} max={6} step={1} onChange={v => set('passes', Math.round(v))} digits={0} />
       </div>
 
       <div className="mt-3 pt-2 border-t border-black/30 text-[10px] text-black/60 leading-snug">
-        체험 1회 완료 후 showcase 화면에서 실시간 튜닝 가능.
-        값은 자동 저장.
+        showcase 진입 후 P 키로 토글. 값은 자동 저장.<br />
+        <span className="text-black/40">※ 슬라이더 wiring은 step 2에서 연결 예정.</span>
       </div>
     </div>
   );
