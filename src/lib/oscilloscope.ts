@@ -342,10 +342,10 @@ export class Oscilloscope {
   // HSL 전환 전 검증된 튜닝값(deae517 기준). HSL 실험은 본판 느낌 훼손으로 롤백.
   public params: Required<OscilloscopeParams> = {
     mainGain: 0.3,
-    exposureStops: -0.5,
-    persistence: -0.04,
+    exposureStops: -1.4,
+    persistence: -0.39,
     hue: 125,
-    lineSize: 0.018,
+    lineSize: 0.016,
     intensity: 0.067,
     invertXY: false,
     bufferSize: 1024,
