@@ -621,41 +621,45 @@ export class GenerativeEngine {
     const o = out.getContext('2d')!;
     o.fillStyle = '#000000';
     o.fillRect(0, 0, w, h);
-    // portraitBuffer 전체를 타겟 크기에 맞춰 복사 (레터박스 없이 fit)
+    // 하단 브랜딩 영역 먼저 계산 → 그 위까지만 파형이 차지하도록 contain-fit
+    const logoReady = this.logoImg.complete && this.logoImg.naturalWidth > 0;
+    const taglineReady = this.taglineImg.complete && this.taglineImg.naturalWidth > 0;
+
+    let waveAreaH = h;
+    let blockTopY = h;
+    let logoDstW = 0, logoDstH = 0, taglineDstW = 0, taglineDstH = 0, gap = 0;
+    const bottomMargin = Math.round(h * 0.045);
+    const padAboveLogo = Math.round(h * 0.03); // 로고 위 추가 여백
+
+    if (logoReady && taglineReady) {
+      taglineDstW = w * 0.7;
+      taglineDstH = taglineDstW * (this.taglineImg.naturalHeight / this.taglineImg.naturalWidth);
+      logoDstH = taglineDstH * 4;
+      logoDstW = logoDstH * (this.logoImg.naturalWidth / this.logoImg.naturalHeight);
+      gap = taglineDstH * 0.8;
+      const totalH = logoDstH + gap + taglineDstH;
+      blockTopY = h - bottomMargin - totalH;
+      waveAreaH = blockTopY - padAboveLogo;
+    }
+
+    // portraitBuffer를 (w × waveAreaH) 영역에 contain-fit
     const srcRatio = this.portraitBuffer.width / this.portraitBuffer.height;
-    const dstRatio = w / h;
-    let dw = w, dh = h, dx = 0, dy = 0;
-    if (srcRatio > dstRatio) {
+    const waveRatio = w / waveAreaH;
+    let dw = w, dh = waveAreaH, dx = 0, dy = 0;
+    if (srcRatio > waveRatio) {
       dh = w / srcRatio;
-      dy = (h - dh) / 2;
+      dy = (waveAreaH - dh) / 2;
     } else {
-      dw = h * srcRatio;
+      dw = waveAreaH * srcRatio;
       dx = (w - dw) / 2;
     }
     o.drawImage(this.portraitBuffer, dx, dy, dw, dh);
 
-    // 하단 중앙 브랜딩 — 로고(위) + 태그라인(아래) 분리 에셋
-    const logoReady = this.logoImg.complete && this.logoImg.naturalWidth > 0;
-    const taglineReady = this.taglineImg.complete && this.taglineImg.naturalWidth > 0;
     if (logoReady && taglineReady) {
-      // 태그라인: portrait 폭의 70%
-      const taglineDstW = w * 0.7;
-      const taglineDstH = taglineDstW * (this.taglineImg.naturalHeight / this.taglineImg.naturalWidth);
-
-      // 로고: 태그라인 대비 4배 높이
-      const logoDstH = taglineDstH * 4;
-      const logoDstW = logoDstH * (this.logoImg.naturalWidth / this.logoImg.naturalHeight);
-
-      const gap = taglineDstH * 0.8;
-      const bottomMargin = Math.round(h * 0.045);
-      const totalH = logoDstH + gap + taglineDstH;
-      const blockTopY = h - bottomMargin - totalH;
-
       const logoDstX = (w - logoDstW) / 2;
       const taglineDstX = (w - taglineDstW) / 2;
       const logoDstY = blockTopY;
       const taglineDstY = logoDstY + logoDstH + gap;
-
       o.drawImage(this.logoImg, logoDstX, logoDstY, logoDstW, logoDstH);
       o.drawImage(this.taglineImg, taglineDstX, taglineDstY, taglineDstW, taglineDstH);
     }
