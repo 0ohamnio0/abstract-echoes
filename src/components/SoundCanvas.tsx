@@ -999,6 +999,9 @@ export default function SoundCanvas() {
     setShowcaseImage(null);
     setShowcaseTimestamp(null);
     qrBusyRef.current = false;
+    // oscFreeze 해제 — 다음 체험이 빈 화면으로 시작하지 않도록 (4-29 회귀 픽스)
+    oscFreezeRef.current = false;
+    setOscFreeze(false);
     stopMic();
     clear();
   }, [stopMic, clear]);
@@ -1025,22 +1028,39 @@ export default function SoundCanvas() {
     speechRef.current?.stop();
     instrumentRef.current?.stop();
 
-    // 3. sound wave print 렌더 — 별도 Canvas 2D 라인 아트 엔진 (dood.al과 독립)
-    //   레퍼런스 룩: 얇은 솔리드 수직 라인, 진폭 비례 높이, 트리거 단어 구간만 고유 색.
-    //   스냅샷 ref에 저장 → 튜닝 패널 슬라이더 변경 시 재렌더에 재사용
-    if (engineRef.current) {
-      const amps = engineRef.current.getSessionAmps().slice();
-      const hues = engineRef.current.getSessionHues().slice();
+    // 3. sessionAmps 30초 통합 sweep을 oscilloscope에 한 번 그려 GL canvas 캡처.
+    //   listening sweep window(8s) ≠ session cap(30s)이라 freeze 캡처는 마지막 8초만 보임.
+    //   여기서 clear() 후 30초 amps 전체로 한 번만 render → mirror+hues+widths 그대로,
+    //   fade는 검정 lineTexture × 작은 alpha라 무시 가능.
+    if (engineRef.current && oscilloscopeRef.current && canvasGLRef.current) {
+      const amps = engineRef.current.getSessionAmps();
+      const hues = engineRef.current.getSessionHues();
       if (amps.length >= 4) {
-        printSnapshotRef.current = { amps, hues, fallbackHue: oscHue };
+        const N = amps.length;
+        const xSweep = new Float32Array(N);
+        const ySweep = new Float32Array(N);
+        const hueSweep = new Float32Array(N);
+        const widthSweep = new Float32Array(N);
+        for (let i = 0; i < N; i++) {
+          xSweep[i] = (i / (N - 1)) * 2 - 1;
+          const a = amps[i] ?? 0;
+          ySweep[i] = a * 0.5;
+          hueSweep[i] = hues[i] ?? -1;
+          widthSweep[i] = 0.7 + Math.min(1, Math.abs(a)) * 1.3;
+        }
         try {
-          const printDataUrl = renderSoundWavePrint(amps, hues, oscHue, printParams);
-          setShowcaseImage(printDataUrl);
+          oscilloscopeRef.current.clear();
+          if (oscSwapXYRef.current) {
+            oscilloscopeRef.current.render(ySweep, xSweep, { mirror: true, hues: hueSweep, widths: widthSweep });
+          } else {
+            oscilloscopeRef.current.render(xSweep, ySweep, { mirror: true, hues: hueSweep, widths: widthSweep });
+          }
+          setShowcaseImage(canvasGLRef.current.toDataURL('image/png'));
         } catch (e) {
-          console.error('[showcase] soundwave print render failed:', e);
+          console.error('[showcase] oscilloscope sweep render failed:', e);
         }
       } else {
-        console.warn('[showcase] sessionAmps too short — no print generated');
+        console.warn('[showcase] sessionAmps too short — no sweep generated');
       }
     }
 
@@ -1055,11 +1075,11 @@ export default function SoundCanvas() {
     //    (튜닝 패널 열려있으면 자동 정지)
 
     // 6. 백그라운드 업로드 — 완료 시 QR 교체
-    //    휴대폰 다운로드는 세로 sound wave print(흰 배경)로 렌더 — 9차 합의 "프레임+다운로드 이미지 흰 배경" 준수
+    //    같은 oscilloscope sweep을 90° 회전 cover로 portrait 1080×2340에 그림 (검은 배경, 4-29 후속 합의)
     try {
-      const snap = printSnapshotRef.current;
-      if (!snap) throw new Error('print snapshot missing');
-      const dataUrl = renderSoundWavePrintPortrait(snap.amps, snap.hues, snap.fallbackHue, printParams);
+      if (!canvasGLRef.current || !engineRef.current) throw new Error('GL canvas or engine missing');
+      engineRef.current.setPortraitFromGL(canvasGLRef.current);
+      const dataUrl = engineRef.current.toPortraitDataURL();
       const imgUrl = await uploadToImgbb(dataUrl);
       const viewerUrl = `${QR_VIEWER_BASE}?img=${encodeURIComponent(imgUrl)}`;
       setQrData({ url: viewerUrl, countdown: Math.round(SHOWCASE_DURATION_MS / 1000) });
@@ -1069,7 +1089,7 @@ export default function SoundCanvas() {
       setIsUploading(false);
       qrBusyRef.current = false;
     }
-  }, [resetAll, oscHue, printParams]);
+  }, [resetAll]);
 
   // showcase phase에서 printParams 바뀌면 즉시 재렌더 (스냅샷 재사용)
   useEffect(() => {
@@ -1162,14 +1182,10 @@ export default function SoundCanvas() {
         }
         return;
       }
-      // P key: 사운드웨이브 프린트 튜닝 패널 토글 (showcase 중에만)
+      // P key: 사운드웨이브 프린트 튜닝 패널 — 4-29 후속 합의 후 oscilloscope 캡처로 전환되어 비활성.
+      // (코드는 롤백 보험으로 유지)
       if (e.code === 'KeyP' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
         if ((e.target as HTMLElement).tagName === 'INPUT') return;
-        console.log('[key P]', { phase, isKioskMode, willToggle: phase === 'showcase' });
-        if (phase === 'showcase') {
-          e.preventDefault();
-          setShowPrintPanel(prev => !prev);
-        }
         return;
       }
       // B key (페달): idle → 체험 시작 / listening → showcase 조기 진입 / showcase → idle 복귀
@@ -1740,10 +1756,10 @@ export default function SoundCanvas() {
         <div className="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center p-16 animate-in fade-in duration-700">
           <div className="relative flex-1 w-full flex items-center justify-center min-h-0">
             <div
-              className="relative flex items-center justify-center max-w-[84vw] max-h-full"
+              className="relative flex items-center justify-center max-w-[78vw] max-h-full"
               style={{
                 background: '#ffffff',
-                padding: '56px 56px 140px 56px',
+                padding: '3vh 4vh 16vh 4vh',
                 boxShadow: '0 30px 90px rgba(0,0,0,0.6)',
                 border: '14px solid #000000',
               }}
@@ -1753,22 +1769,37 @@ export default function SoundCanvas() {
                   src={showcaseImage}
                   alt="체험 결과"
                   className="object-contain"
-                  style={{ maxWidth: '100%', maxHeight: '62vh' }}
+                  style={{ maxWidth: '100%', maxHeight: '50vh' }}
                 />
               )}
-              {/* 프레임 내부 우하단 QR 서명 */}
-              <div className="absolute bottom-6 right-6 flex items-center gap-3">
+              {/* 흰 footer (16vh) 안 우하단 QR 11vh × 11vh, 비례 기반 (1720×1032 viewport 기준) */}
+              <div
+                className="absolute flex items-center"
+                style={{
+                  bottom: 0,
+                  right: 0,
+                  height: '16vh',
+                  paddingRight: '4vh',
+                  gap: '1.5vh',
+                }}
+              >
                 <div className="text-right">
                   <p className="text-neutral-700 text-[10px] tracking-[0.25em] uppercase">Scan to save</p>
                   <p className="text-neutral-500 text-[9px] tracking-[0.2em] mt-0.5">BREMEN BACKYARD</p>
                 </div>
                 {!qrData || isUploading ? (
-                  <div className="bg-white border border-neutral-300 p-2 flex items-center justify-center w-[96px] h-[96px]">
-                    <div className="w-6 h-6 border-2 border-neutral-400 border-t-transparent rounded-full animate-spin" />
+                  <div
+                    className="bg-white border border-neutral-300 flex items-center justify-center"
+                    style={{ width: '11vh', height: '11vh', padding: '0.5vh' }}
+                  >
+                    <div className="w-10 h-10 border-2 border-neutral-400 border-t-transparent rounded-full animate-spin" />
                   </div>
                 ) : (
-                  <div className="bg-white border border-neutral-300 p-2">
-                    <QRCodeSVG value={qrData.url} size={80} />
+                  <div
+                    className="bg-white border border-neutral-300"
+                    style={{ width: '11vh', height: '11vh', padding: '0.5vh' }}
+                  >
+                    <QRCodeSVG value={qrData.url} size={256} style={{ width: '100%', height: '100%' }} />
                   </div>
                 )}
               </div>
