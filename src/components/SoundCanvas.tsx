@@ -1079,7 +1079,7 @@ export default function SoundCanvas() {
     try {
       if (!canvasGLRef.current || !engineRef.current) throw new Error('GL canvas or engine missing');
       engineRef.current.setPortraitFromGL(canvasGLRef.current);
-      const dataUrl = engineRef.current.toPortraitDataURL();
+      const dataUrl = await engineRef.current.toPortraitDataURL();
       const imgUrl = await uploadToImgbb(dataUrl);
       const viewerUrl = `${QR_VIEWER_BASE}?img=${encodeURIComponent(imgUrl)}`;
       setQrData({ url: viewerUrl, countdown: Math.round(SHOWCASE_DURATION_MS / 1000) });
@@ -1145,10 +1145,11 @@ export default function SoundCanvas() {
     setShowSaveMenu(false);
   }, [downloadDataUrl]);
 
-  const savePortrait = useCallback(() => {
+  const savePortrait = useCallback(async () => {
     if (!engineRef.current) return;
     if (canvasGLRef.current) engineRef.current.setPortraitFromGL(canvasGLRef.current);
-    downloadDataUrl(engineRef.current.toPortraitDataURL(), 'wallpaper');
+    const url = await engineRef.current.toPortraitDataURL();
+    downloadDataUrl(url, 'wallpaper');
     setShowSaveMenu(false);
   }, [downloadDataUrl]);
 

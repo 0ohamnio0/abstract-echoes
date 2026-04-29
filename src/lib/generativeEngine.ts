@@ -614,7 +614,15 @@ export class GenerativeEngine {
     return this.trailCanvas.toDataURL('image/png');
   }
 
-  toPortraitDataURL(w = 1080, h = 2340): string {
+  async toPortraitDataURL(w = 1080, h = 2340): Promise<string> {
+    // 로고/태그라인 비동기 로드 보장 — 호출 시점에 아직 안 떠 있으면 기다림
+    try {
+      await Promise.all([
+        this.logoImg.decode().catch(() => {}),
+        this.taglineImg.decode().catch(() => {}),
+      ]);
+    } catch { /* 실패해도 진행 — 아래에서 ready 체크 */ }
+
     // 발화가 없었으면 portraitBuffer가 비어 있을 수 있음 → 그대로 검정 배경 반환
     const out = document.createElement('canvas');
     out.width = w; out.height = h;
