@@ -1004,10 +1004,13 @@ export default function SoundCanvas() {
         }
         return;
       }
-      // P key: 사운드웨이브 프린트 튜닝 패널 — 4-29 후속 합의 후 oscilloscope 캡처로 전환되어 비활성.
-      // (코드는 롤백 보험으로 유지)
+      // P key: showcase sweep 튜닝 패널 토글 (showcase 중에만, 세팅 모드)
       if (e.code === 'KeyP' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
         if ((e.target as HTMLElement).tagName === 'INPUT') return;
+        if (phase === 'showcase') {
+          e.preventDefault();
+          setShowPrintPanel(prev => !prev);
+        }
         return;
       }
       // B key (페달): idle → 체험 시작 / listening → showcase 조기 진입 / showcase → idle 복귀
