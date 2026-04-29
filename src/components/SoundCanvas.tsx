@@ -210,13 +210,14 @@ export interface PrintParams {
   passes: number;         // 멀티패스 누적 (1..6)
 }
 
+// 4-30 해민 튜닝값 (클라 피드백 "더 풍성하게" 반영).
 export const DEFAULT_PRINT_PARAMS: PrintParams = {
-  ampScale: 0.5,
-  widthBase: 0.7,
-  widthBoost: 1.3,
-  lineSizeMul: 1.0,
-  intensityMul: 1.0,
-  passes: 1,
+  ampScale: 1.5,
+  widthBase: 0.8,
+  widthBoost: 1.95,
+  lineSizeMul: 1.35,
+  intensityMul: 1.65,
+  passes: 4,
 };
 
 /**
