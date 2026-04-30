@@ -6,9 +6,10 @@ interface Props {
   params: PrintParams;
   onChange: (next: PrintParams) => void;
   onReset: () => void;
+  portraitPreview?: string | null;
 }
 
-export default function PrintTuningPanel({ visible, onClose, params, onChange, onReset }: Props) {
+export default function PrintTuningPanel({ visible, onClose, params, onChange, onReset, portraitPreview }: Props) {
   if (!visible) return null;
 
   const set = <K extends keyof PrintParams>(key: K, value: PrintParams[K]) => {
@@ -33,14 +34,31 @@ export default function PrintTuningPanel({ visible, onClose, params, onChange, o
         </div>
       </div>
 
-      <Slider label="Amp scale" value={params.ampScale} min={0.2} max={1.5} step={0.05} onChange={v => set('ampScale', v)} digits={2} />
-      <Slider label="Width base" value={params.widthBase} min={0.3} max={2.0} step={0.05} onChange={v => set('widthBase', v)} digits={2} />
-      <Slider label="Width boost" value={params.widthBoost} min={0.5} max={3.0} step={0.05} onChange={v => set('widthBoost', v)} digits={2} />
+      <Slider label="Amp scale" value={params.ampScale} min={0.2} max={4.0} step={0.05} onChange={v => set('ampScale', v)} digits={2} />
+      <Slider label="Width base" value={params.widthBase} min={0.3} max={4.0} step={0.05} onChange={v => set('widthBase', v)} digits={2} />
+      <Slider label="Width boost" value={params.widthBoost} min={0.5} max={6.0} step={0.05} onChange={v => set('widthBoost', v)} digits={2} />
 
       <div className="mt-3 pt-2 border-t border-black/30">
-        <Slider label="Line size ×" value={params.lineSizeMul} min={0.5} max={3.0} step={0.05} onChange={v => set('lineSizeMul', v)} digits={2} />
-        <Slider label="Intensity ×" value={params.intensityMul} min={0.5} max={3.0} step={0.05} onChange={v => set('intensityMul', v)} digits={2} />
+        <Slider label="Line size ×" value={params.lineSizeMul} min={0.5} max={6.0} step={0.05} onChange={v => set('lineSizeMul', v)} digits={2} />
+        <Slider label="Intensity ×" value={params.intensityMul} min={0.5} max={6.0} step={0.05} onChange={v => set('intensityMul', v)} digits={2} />
         <Slider label="Passes" value={params.passes} min={1} max={6} step={1} onChange={v => set('passes', Math.round(v))} digits={0} />
+      </div>
+
+      <div className="mt-3 pt-2 border-t border-black/30">
+        <div className="font-bold tracking-wider text-xs mb-1">PORTRAIT LAYOUT</div>
+        <Slider label="Logo size ×" value={params.logoScale} min={0.5} max={3.0} step={0.05} onChange={v => set('logoScale', v)} digits={2} />
+        <Slider label="Tagline size ×" value={params.taglineScale} min={0.5} max={2.0} step={0.05} onChange={v => set('taglineScale', v)} digits={2} />
+        <Slider label="Tag offset Y" value={params.tagOffsetY} min={-0.10} max={0.05} step={0.005} onChange={v => set('tagOffsetY', v)} digits={3} />
+        {portraitPreview && (
+          <div className="mt-2 flex justify-center">
+            <img
+              src={portraitPreview}
+              alt="portrait preview"
+              className="w-[160px] h-auto border border-black/40"
+              style={{ imageRendering: 'auto' }}
+            />
+          </div>
+        )}
       </div>
 
       <div className="mt-3 pt-2 border-t border-black/30 text-[10px] text-black/60 leading-snug">

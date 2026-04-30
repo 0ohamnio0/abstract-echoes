@@ -208,16 +208,23 @@ export interface PrintParams {
   lineSizeMul: number;    // oscilloscope lineSize 배율 (0.5..3.0)
   intensityMul: number;   // intensity 배율 (0.5..3.0)
   passes: number;         // 멀티패스 누적 (1..6)
+  // 4-30 후속 — portrait(QR 다운로드 화면) 로고/태그라인 layout 미세조정
+  logoScale: number;      // 동물 로고 폭 배율 (rina spec 5.12% × scale)
+  taglineScale: number;   // "Life is a series..." 태그라인 폭 배율 (rina spec 39.5% × scale)
+  tagOffsetY: number;     // 태그라인 y 오프셋 (h 비율, 음수=위로 → 로고와 간격 좁힘)
 }
 
-// 4-30 해민 튜닝값 (클라 피드백 "더 풍성하게" 반영).
+// 4-30 해민 튜닝값 (rina 4-30 피드백 "위아래 더 증폭, 동물로고/태그라인 더 크게 + 간격 붙이기" 반영).
 export const DEFAULT_PRINT_PARAMS: PrintParams = {
-  ampScale: 1.5,
-  widthBase: 0.8,
-  widthBoost: 1.95,
+  ampScale: 4.0,
+  widthBase: 1.3,
+  widthBoost: 2.0,
   lineSizeMul: 1.35,
-  intensityMul: 1.65,
+  intensityMul: 2.1,
   passes: 4,
+  logoScale: 1.25,
+  taglineScale: 1.1,
+  tagOffsetY: 0.005,
 };
 
 /**
@@ -486,6 +493,8 @@ export default function SoundCanvas() {
   // showcase 오실로스코프 sweep 튜닝 — 패널 슬라이더 상태 + localStorage 영구화
   const [printParams, setPrintParams] = useState<PrintParams>(loadPrintParams);
   const [showPrintPanel, setShowPrintPanel] = useState(false);
+  // portrait(QR 다운로드) 미리보기 — P 패널 썸네일에 표시
+  const [portraitPreview, setPortraitPreview] = useState<string | null>(null);
   // loop()이 stale closure 안 타도록 enterShowcase를 ref로 경유 호출
   const enterShowcaseRef = useRef<() => void>(() => {});
 
@@ -932,7 +941,11 @@ export default function SoundCanvas() {
     try {
       if (!canvasGLRef.current || !engineRef.current) throw new Error('GL canvas or engine missing');
       engineRef.current.setPortraitFromGL(canvasGLRef.current);
-      const dataUrl = await engineRef.current.toPortraitDataURL();
+      const dataUrl = await engineRef.current.toPortraitDataURL({
+        logoScale: printParams.logoScale,
+        taglineScale: printParams.taglineScale,
+        tagOffsetY: printParams.tagOffsetY,
+      });
       const imgUrl = await uploadToImgbb(dataUrl);
       const viewerUrl = `${QR_VIEWER_BASE}?img=${encodeURIComponent(imgUrl)}`;
       setQrData({ url: viewerUrl, countdown: Math.round(SHOWCASE_DURATION_MS / 1000) });
@@ -952,6 +965,26 @@ export default function SoundCanvas() {
     const dataUrl = renderShowcaseSweep(printParams);
     if (dataUrl) setShowcaseImage(dataUrl);
   }, [phase, printParams, renderShowcaseSweep]);
+
+  // P 패널 portrait 썸네일 — printParams 변경마다 portrait dataURL 재생성.
+  //   위 effect에서 GL canvas가 최신 printParams로 갱신된 직후 portraitBuffer 재합성.
+  useEffect(() => {
+    if (phase !== 'showcase') return;
+    if (!engineRef.current || !canvasGLRef.current) return;
+    let cancelled = false;
+    engineRef.current.setPortraitFromGL(canvasGLRef.current);
+    engineRef.current
+      .toPortraitDataURL({
+        logoScale: printParams.logoScale,
+        taglineScale: printParams.taglineScale,
+        tagOffsetY: printParams.tagOffsetY,
+      })
+      .then((url) => {
+        if (!cancelled) setPortraitPreview(url);
+      })
+      .catch((e) => console.warn('[portrait preview] failed', e));
+    return () => { cancelled = true; };
+  }, [phase, printParams]);
 
   const handlePrintParamsChange = useCallback((next: PrintParams) => {
     setPrintParams(next);
@@ -997,10 +1030,14 @@ export default function SoundCanvas() {
   const savePortrait = useCallback(async () => {
     if (!engineRef.current) return;
     if (canvasGLRef.current) engineRef.current.setPortraitFromGL(canvasGLRef.current);
-    const url = await engineRef.current.toPortraitDataURL();
+    const url = await engineRef.current.toPortraitDataURL({
+      logoScale: printParams.logoScale,
+      taglineScale: printParams.taglineScale,
+      tagOffsetY: printParams.tagOffsetY,
+    });
     downloadDataUrl(url, 'wallpaper');
     setShowSaveMenu(false);
-  }, [downloadDataUrl]);
+  }, [downloadDataUrl, printParams.logoScale, printParams.taglineScale, printParams.tagOffsetY]);
 
   const handleSensitivityChange = useCallback((val: number) => {
     setSensitivity(val);
@@ -1558,6 +1595,7 @@ export default function SoundCanvas() {
           params={printParams}
           onChange={handlePrintParamsChange}
           onReset={handlePrintParamsReset}
+          portraitPreview={portraitPreview}
         />
       )}
 

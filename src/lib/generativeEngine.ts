@@ -614,7 +614,10 @@ export class GenerativeEngine {
     return this.trailCanvas.toDataURL('image/png');
   }
 
-  async toPortraitDataURL(w = 1080, h = 2340): Promise<string> {
+  async toPortraitDataURL(
+    opts: { w?: number; h?: number; logoScale?: number; taglineScale?: number; tagOffsetY?: number } = {},
+  ): Promise<string> {
+    const { w = 1080, h = 2340, logoScale = 1, taglineScale = 1, tagOffsetY = 0 } = opts;
     // 로고/태그라인 비동기 로드 보장 — 호출 시점에 아직 안 떠 있으면 기다림
     try {
       await Promise.all([
@@ -637,6 +640,7 @@ export class GenerativeEngine {
     //   - 로고 폭 55.27 / 1080 = 5.12% (PNG 자연 비율로 높이 자동)
     //   - 태그라인 폭 426.39 / 1080 = 39.5% (SVG 자연 비율로 높이 자동)
     //   - 로고 top y = 1686.93 / 2340 = 72.1%, 태그라인 bottom y = 1888.23 / 2340 = 80.7%
+    // 4-30 후속 — logoScale/taglineScale로 base 폭에 배율, tagOffsetY(h 비율)로 태그라인 y 미세조정
     let waveAreaH = h;
     let blockTopY = h;
     let logoDstW = 0, logoDstH = 0, taglineDstW = 0, taglineDstH = 0;
@@ -644,11 +648,11 @@ export class GenerativeEngine {
     const padAboveLogo = Math.round(h * 0.03); // 로고 위 추가 여백
 
     if (logoReady && taglineReady) {
-      taglineDstW = w * (426.39 / 1080);
+      taglineDstW = w * (426.39 / 1080) * taglineScale;
       taglineDstH = taglineDstW * (this.taglineImg.naturalHeight / this.taglineImg.naturalWidth);
-      taglineDstY = h * (1888.23 / 2340) - taglineDstH;
+      taglineDstY = h * (1888.23 / 2340) - taglineDstH + h * tagOffsetY;
 
-      logoDstW = w * (55.27 / 1080);
+      logoDstW = w * (55.27 / 1080) * logoScale;
       logoDstH = logoDstW * (this.logoImg.naturalHeight / this.logoImg.naturalWidth);
       logoDstY = h * (1686.93 / 2340);
 
