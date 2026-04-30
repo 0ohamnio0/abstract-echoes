@@ -218,9 +218,9 @@ export interface PrintParams {
 export const DEFAULT_PRINT_PARAMS: PrintParams = {
   ampScale: 4.0,
   widthBase: 1.3,
-  widthBoost: 2.0,
-  lineSizeMul: 1.35,
-  intensityMul: 2.1,
+  widthBoost: 1.9,
+  lineSizeMul: 0.5,
+  intensityMul: 2.65,
   passes: 4,
   logoScale: 1.25,
   taglineScale: 1.1,
