@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 5-06 — listening 카운트다운은 Adobe Fonts Acumin Pro Thin.
+   Typekit kit URL을 index.html에 박아두면 acumin-pro family 사용 가능.
+   kit ID 미설정 상태에선 fallback 체인으로 Helvetica Neue UltraLight → system thin sans 표시. */
+
 @layer base {
   :root {
     --background: 0 0% 22.4%;

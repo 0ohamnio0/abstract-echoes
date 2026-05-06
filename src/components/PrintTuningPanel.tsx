@@ -46,17 +46,47 @@ export default function PrintTuningPanel({ visible, onClose, params, onChange, o
 
       <div className="mt-3 pt-2 border-t border-black/30">
         <div className="font-bold tracking-wider text-xs mb-1">PORTRAIT LAYOUT</div>
+        <div className="text-[10px] text-black/55 mb-1">상단 OH!BREMEN</div>
+        <Slider label="Top logo size ×" value={params.banwonScale} min={0.3} max={1.5} step={0.02} onChange={v => set('banwonScale', v)} digits={2} />
+        <Slider label="Top logo Y" value={params.banwonOffsetY} min={-0.05} max={0.20} step={0.005} onChange={v => set('banwonOffsetY', v)} digits={3} />
+        <div className="text-[10px] text-black/55 mt-2 mb-1">하단 동물 로고</div>
         <Slider label="Logo size ×" value={params.logoScale} min={0.5} max={3.0} step={0.05} onChange={v => set('logoScale', v)} digits={2} />
+        <Slider label="Logo Y" value={params.logoOffsetY} min={-0.20} max={0.10} step={0.005} onChange={v => set('logoOffsetY', v)} digits={3} />
+        <div className="text-[10px] text-black/55 mt-2 mb-1">태그라인</div>
         <Slider label="Tagline size ×" value={params.taglineScale} min={0.5} max={2.0} step={0.05} onChange={v => set('taglineScale', v)} digits={2} />
-        <Slider label="Tag offset Y" value={params.tagOffsetY} min={-0.10} max={0.05} step={0.005} onChange={v => set('tagOffsetY', v)} digits={3} />
+        <Slider label="Tag Y" value={params.tagOffsetY} min={-0.20} max={0.10} step={0.005} onChange={v => set('tagOffsetY', v)} digits={3} />
         {portraitPreview && (
-          <div className="mt-2 flex justify-center">
+          <div className="mt-2 flex flex-col items-center gap-1.5">
             <img
               src={portraitPreview}
               alt="portrait preview"
               className="w-[160px] h-auto border border-black/40"
               style={{ imageRendering: 'auto' }}
             />
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const w = window.open();
+                  if (w) {
+                    w.document.title = 'QR 다운로드 미리보기 (1080×2340)';
+                    w.document.body.style.cssText = 'margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh';
+                    const img = w.document.createElement('img');
+                    img.src = portraitPreview;
+                    img.style.cssText = 'max-width:100%;max-height:100vh;height:auto';
+                    w.document.body.appendChild(img);
+                  }
+                }}
+                className="text-[10px] px-2 py-0.5 border border-black/40 hover:bg-black/10"
+                title="새 탭에서 풀해상도로 열기"
+              >새 탭</button>
+              <a
+                href={portraitPreview}
+                download={`bremen-qr-preview-${Date.now()}.png`}
+                className="text-[10px] px-2 py-0.5 border border-black/40 hover:bg-black/10"
+                title="PNG 파일로 다운로드"
+              >PNG 저장</a>
+            </div>
           </div>
         )}
       </div>

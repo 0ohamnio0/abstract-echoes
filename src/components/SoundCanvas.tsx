@@ -179,9 +179,11 @@ const INTRO_BEAST_CONFIG = [
 
 type Phase = 'idle' | 'intro' | 'listening' | 'showcase';
 
-// Showcase: 체험 종료 후 LED 전면에 프레임화된 결과를 10초 노출하는 단계
+// Showcase: 체험 종료 후 LED 전면에 프레임화된 결과를 노출하는 단계
 // (a) 30초 cap 도달 자동 진입  (b) B 버튼 조기 종료
 const SHOWCASE_DURATION_MS = 20_000;
+// 체험(listening) 세션 cap — engine SESSION_CAP_MS와 동일 (30초)
+const SESSION_CAP_SECONDS = 30;
 
 // 9차 합의 — 단어별 컬러 이스터에그. 체험 중 트리거 단어 인식 시 history의 해당 구간
 // 0.3초 정도만 고유 hue로 칠해지고 세션 기본 hue로 자연 복귀. 인스타 "숨은 색 찾아보세요" 훅.
@@ -209,12 +211,16 @@ export interface PrintParams {
   intensityMul: number;   // intensity 배율 (0.5..3.0)
   passes: number;         // 멀티패스 누적 (1..6)
   // 4-30 후속 — portrait(QR 다운로드 화면) 로고/태그라인 layout 미세조정
-  logoScale: number;      // 동물 로고 폭 배율 (rina spec 5.12% × scale)
-  taglineScale: number;   // "Life is a series..." 태그라인 폭 배율 (rina spec 39.5% × scale)
-  tagOffsetY: number;     // 태그라인 y 오프셋 (h 비율, 음수=위로 → 로고와 간격 좁힘)
+  logoScale: number;      // 동물(하단) 로고 폭 배율 (base 5.12% × scale)
+  taglineScale: number;   // "Life is a series..." 태그라인 폭 배율 (base 39.5% × scale)
+  tagOffsetY: number;     // 태그라인 y 오프셋 (h 비율)
+  // 5-06 클라 — portrait 6 슬라이더 풀세트
+  banwonScale: number;    // 상단 OH!BREMEN(반원) 로고 폭 배율 (base 72% × scale)
+  banwonOffsetY: number;  // 상단 로고 y 오프셋 (h 비율)
+  logoOffsetY: number;    // 하단 로고 y 오프셋 (h 비율)
 }
 
-// 4-30 해민 튜닝값 (rina 4-30 피드백 "위아래 더 증폭, 동물로고/태그라인 더 크게 + 간격 붙이기" 반영).
+// 4-30 해민 튜닝값 + 5-06 클라 portrait 6 슬라이더 디폴트 확정 (감독님 시연 기준값).
 export const DEFAULT_PRINT_PARAMS: PrintParams = {
   ampScale: 4.0,
   widthBase: 1.3,
@@ -222,9 +228,12 @@ export const DEFAULT_PRINT_PARAMS: PrintParams = {
   lineSizeMul: 0.5,
   intensityMul: 2.65,
   passes: 4,
-  logoScale: 1.25,
-  taglineScale: 1.1,
+  logoScale: 1.45,
+  taglineScale: 1.05,
   tagOffsetY: 0.005,
+  banwonScale: 0.46,
+  banwonOffsetY: 0.030,
+  logoOffsetY: 0.030,
 };
 
 /**
@@ -490,6 +499,9 @@ export default function SoundCanvas() {
   const [showcaseImage, setShowcaseImage] = useState<string | null>(null);
   const [showcaseTimestamp, setShowcaseTimestamp] = useState<Date | null>(null);
   const showcaseTimerRef = useRef<number>(0);
+  // 5-06 클라 — 체험(listening) 화면 카운트다운 (30→0)
+  const [secondsLeft, setSecondsLeft] = useState<number>(SESSION_CAP_SECONDS);
+  const secondsTickRef = useRef<number>(0);
   // showcase 오실로스코프 sweep 튜닝 — 패널 슬라이더 상태 + localStorage 영구화
   const [printParams, setPrintParams] = useState<PrintParams>(loadPrintParams);
   const [showPrintPanel, setShowPrintPanel] = useState(false);
@@ -945,6 +957,9 @@ export default function SoundCanvas() {
         logoScale: printParams.logoScale,
         taglineScale: printParams.taglineScale,
         tagOffsetY: printParams.tagOffsetY,
+        banwonScale: printParams.banwonScale,
+        banwonOffsetY: printParams.banwonOffsetY,
+        logoOffsetY: printParams.logoOffsetY,
       });
       const imgUrl = await uploadToImgbb(dataUrl);
       const viewerUrl = `${QR_VIEWER_BASE}?img=${encodeURIComponent(imgUrl)}`;
@@ -978,6 +993,9 @@ export default function SoundCanvas() {
         logoScale: printParams.logoScale,
         taglineScale: printParams.taglineScale,
         tagOffsetY: printParams.tagOffsetY,
+        banwonScale: printParams.banwonScale,
+        banwonOffsetY: printParams.banwonOffsetY,
+        logoOffsetY: printParams.logoOffsetY,
       })
       .then((url) => {
         if (!cancelled) setPortraitPreview(url);
@@ -1009,6 +1027,26 @@ export default function SoundCanvas() {
     }, SHOWCASE_DURATION_MS);
   }, [phase, showPrintPanel, resetAll]);
 
+  // 5-06 클라 — 체험(listening) 페이즈 카운트다운: 첫 발화 시점(engine.getSessionStartMs)부터 30→0
+  // 발화 전에는 30 그대로 유지 → 사람이 말 시작하면 카운트 시작
+  useEffect(() => {
+    if (phase !== 'listening') {
+      clearInterval(secondsTickRef.current);
+      setSecondsLeft(SESSION_CAP_SECONDS);
+      return;
+    }
+    const tick = () => {
+      const startMs = engineRef.current?.getSessionStartMs() ?? 0;
+      if (!startMs) { setSecondsLeft(SESSION_CAP_SECONDS); return; }
+      const elapsed = (performance.now() - startMs) / 1000;
+      setSecondsLeft(Math.max(0, Math.ceil(SESSION_CAP_SECONDS - elapsed)));
+    };
+    tick();
+    clearInterval(secondsTickRef.current);
+    secondsTickRef.current = window.setInterval(tick, 250);
+    return () => clearInterval(secondsTickRef.current);
+  }, [phase]);
+
   // loop()이 최신 enterShowcase 참조하도록 ref 동기화
   useEffect(() => {
     enterShowcaseRef.current = () => { void enterShowcase(); };
@@ -1034,10 +1072,13 @@ export default function SoundCanvas() {
       logoScale: printParams.logoScale,
       taglineScale: printParams.taglineScale,
       tagOffsetY: printParams.tagOffsetY,
+      banwonScale: printParams.banwonScale,
+      banwonOffsetY: printParams.banwonOffsetY,
+      logoOffsetY: printParams.logoOffsetY,
     });
     downloadDataUrl(url, 'wallpaper');
     setShowSaveMenu(false);
-  }, [downloadDataUrl, printParams.logoScale, printParams.taglineScale, printParams.tagOffsetY]);
+  }, [downloadDataUrl, printParams]);
 
   const handleSensitivityChange = useCallback((val: number) => {
     setSensitivity(val);
@@ -1129,6 +1170,7 @@ export default function SoundCanvas() {
       clearTimeout(modeIndicatorTimerRef.current);
       clearInterval(qrTimerRef.current);
       clearTimeout(showcaseTimerRef.current);
+      clearInterval(secondsTickRef.current);
       chimeCtxRef.current?.close().catch(() => {});
     };
   }, []);
@@ -1604,6 +1646,18 @@ export default function SoundCanvas() {
           <div className="absolute bottom-14 left-1/2 -translate-x-1/2 text-center px-8">
             <div className="text-[18px] font-light tracking-[0.2em] text-foreground/90 text-glow">당신의 목소리를 남겨보세요</div>
             <div className="text-[12px] text-muted-foreground/70 tracking-[0.25em] mt-1">Your voice, your trace</div>
+          </div>
+          {/* 5-06 클라 — 체험 중 카운트다운 (첫 발화 후 30→0)
+              Adobe Fonts Acumin Pro Thin, 상단 가운데 정렬 */}
+          <div
+            className="absolute top-10 left-1/2 -translate-x-1/2 text-foreground/90 text-[88px] leading-none tabular-nums select-none"
+            style={{
+              fontFamily: '"acumin-pro", "Helvetica Neue", "Inter", system-ui, sans-serif',
+              fontWeight: 100,
+              letterSpacing: '0.04em',
+            }}
+          >
+            {secondsLeft}
           </div>
         </div>
       )}

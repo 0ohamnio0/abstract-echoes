@@ -171,6 +171,8 @@ export class GenerativeEngine {
   // 클라 브랜딩 footer — 로고와 태그라인 분리 에셋
   private logoImg: HTMLImageElement;
   private taglineImg: HTMLImageElement;
+  // portrait 상단 헤더 마크 (5-06 클라 추가)
+  private banwonImg: HTMLImageElement;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -199,6 +201,8 @@ export class GenerativeEngine {
     this.logoImg.src = '/bremen-logo.png';
     this.taglineImg = new Image();
     this.taglineImg.src = '/bremen-tagline.svg';
+    this.banwonImg = new Image();
+    this.banwonImg.src = '/banwon_logo.svg';
   }
 
   // ── 외부 API (SoundCanvas.tsx가 호출) ─────────────────────────
@@ -615,14 +619,24 @@ export class GenerativeEngine {
   }
 
   async toPortraitDataURL(
-    opts: { w?: number; h?: number; logoScale?: number; taglineScale?: number; tagOffsetY?: number } = {},
+    opts: {
+      w?: number; h?: number;
+      logoScale?: number; taglineScale?: number; tagOffsetY?: number;
+      // 5-06 클라 — 상단 반원 로고 / 하단 로고 위치·스케일 슬라이더
+      banwonScale?: number; banwonOffsetY?: number; logoOffsetY?: number;
+    } = {},
   ): Promise<string> {
-    const { w = 1080, h = 2340, logoScale = 1, taglineScale = 1, tagOffsetY = 0 } = opts;
+    const {
+      w = 1080, h = 2340,
+      logoScale = 1, taglineScale = 1, tagOffsetY = 0,
+      banwonScale = 1, banwonOffsetY = 0, logoOffsetY = 0,
+    } = opts;
     // 로고/태그라인 비동기 로드 보장 — 호출 시점에 아직 안 떠 있으면 기다림
     try {
       await Promise.all([
         this.logoImg.decode().catch(() => {}),
         this.taglineImg.decode().catch(() => {}),
+        this.banwonImg.decode().catch(() => {}),
       ]);
     } catch { /* 실패해도 진행 — 아래에서 ready 체크 */ }
 
@@ -635,12 +649,25 @@ export class GenerativeEngine {
     // 하단 브랜딩 영역 먼저 계산 → 그 위까지만 파형이 차지하도록 contain-fit
     const logoReady = this.logoImg.complete && this.logoImg.naturalWidth > 0;
     const taglineReady = this.taglineImg.complete && this.taglineImg.naturalWidth > 0;
+    const banwonReady = this.banwonImg.complete && this.banwonImg.naturalWidth > 0;
+
+    // 5-06 추가 / 5-06 클라 후속 — 상단 반원 헤더 마크 4배 확대 (base 72% × banwonScale).
+    //   상단 여백·아래 여백도 압축해서 wave 영역 확보. banwonOffsetY로 y 미세조정.
+    let banwonDstW = 0, banwonDstH = 0, banwonDstY = 0;
+    let waveTopY = 0;
+    if (banwonReady) {
+      banwonDstW = w * 0.72 * banwonScale;
+      banwonDstH = banwonDstW * (this.banwonImg.naturalHeight / this.banwonImg.naturalWidth);
+      banwonDstY = h * (0.025 + banwonOffsetY);
+      waveTopY = banwonDstY + banwonDstH + h * 0.015; // 마크 아래 1.5% 여백
+    }
 
     // rina 4-30 spec (download 화면 로고위치 수정.svg, 1080×2340 viewBox 기준)
     //   - 로고 폭 55.27 / 1080 = 5.12% (PNG 자연 비율로 높이 자동)
     //   - 태그라인 폭 426.39 / 1080 = 39.5% (SVG 자연 비율로 높이 자동)
-    //   - 로고 top y = 1686.93 / 2340 = 72.1%, 태그라인 bottom y = 1888.23 / 2340 = 80.7%
-    // 4-30 후속 — logoScale/taglineScale로 base 폭에 배율, tagOffsetY(h 비율)로 태그라인 y 미세조정
+    // 5-06 클라 후속 — 하단 로고/태그라인 위치를 더 아래로 내려 wave 영역 확장
+    //   - 로고 top y = 72.1% → 83%
+    //   - 태그라인 bottom y = 80.7% → 95%
     let waveAreaH = h;
     let blockTopY = h;
     let logoDstW = 0, logoDstH = 0, taglineDstW = 0, taglineDstH = 0;
@@ -650,28 +677,34 @@ export class GenerativeEngine {
     if (logoReady && taglineReady) {
       taglineDstW = w * (426.39 / 1080) * taglineScale;
       taglineDstH = taglineDstW * (this.taglineImg.naturalHeight / this.taglineImg.naturalWidth);
-      taglineDstY = h * (1888.23 / 2340) - taglineDstH + h * tagOffsetY;
+      taglineDstY = h * 0.95 - taglineDstH + h * tagOffsetY;
 
       logoDstW = w * (55.27 / 1080) * logoScale;
       logoDstH = logoDstW * (this.logoImg.naturalHeight / this.logoImg.naturalWidth);
-      logoDstY = h * (1686.93 / 2340);
+      logoDstY = h * (0.83 + logoOffsetY);
 
       blockTopY = logoDstY;
       waveAreaH = blockTopY - padAboveLogo;
     }
 
-    // portraitBuffer를 (w × waveAreaH) 영역에 contain-fit
+    // portraitBuffer를 (w × waveAreaInnerH) 영역에 contain-fit. 상단 헤더(반원) 아래부터 시작.
+    const waveAreaInnerH = Math.max(0, waveAreaH - waveTopY);
     const srcRatio = this.portraitBuffer.width / this.portraitBuffer.height;
-    const waveRatio = w / waveAreaH;
-    let dw = w, dh = waveAreaH, dx = 0, dy = 0;
+    const waveRatio = waveAreaInnerH > 0 ? w / waveAreaInnerH : 1;
+    let dw = w, dh = waveAreaInnerH, dx = 0, dy = waveTopY;
     if (srcRatio > waveRatio) {
       dh = w / srcRatio;
-      dy = (waveAreaH - dh) / 2;
+      dy = waveTopY + (waveAreaInnerH - dh) / 2;
     } else {
-      dw = waveAreaH * srcRatio;
+      dw = waveAreaInnerH * srcRatio;
       dx = (w - dw) / 2;
     }
     o.drawImage(this.portraitBuffer, dx, dy, dw, dh);
+
+    if (banwonReady) {
+      const banwonDstX = (w - banwonDstW) / 2;
+      o.drawImage(this.banwonImg, banwonDstX, banwonDstY, banwonDstW, banwonDstH);
+    }
 
     if (logoReady && taglineReady) {
       const logoDstX = (w - logoDstW) / 2;
