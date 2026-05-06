@@ -220,7 +220,7 @@ export interface PrintParams {
   logoOffsetY: number;    // 하단 로고 y 오프셋 (h 비율)
 }
 
-// 5-06 rina spec + 해민 패널 튜닝 최종값 (감독님 시연 확정, 최종 배포 디폴트).
+// 5-06 rina 3차 — 상하 여백 충분히 (OH!BREMEN 더 아래로, 하단 블록 더 위로 이동).
 export const DEFAULT_PRINT_PARAMS: PrintParams = {
   ampScale: 4.0,
   widthBase: 1.3,
@@ -230,11 +230,11 @@ export const DEFAULT_PRINT_PARAMS: PrintParams = {
   passes: 4,
   logoScale: 1.10,
   taglineScale: 1.30,
-  tagOffsetY: 0.125,
+  tagOffsetY: 0.030,
   banwonScale: 0.44,
-  banwonOffsetY: 0.005,
+  banwonOffsetY: 0.060,
   banwonGap: -0.010,
-  logoOffsetY: 0.115,
+  logoOffsetY: 0.030,
 };
 
 /**
