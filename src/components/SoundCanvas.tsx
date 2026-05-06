@@ -1648,10 +1648,11 @@ export default function SoundCanvas() {
             <div className="text-[12px] text-muted-foreground/70 tracking-[0.25em] mt-1">Your voice, your trace</div>
           </div>
           {/* 5-06 클라 — 체험 중 카운트다운 (첫 발화 후 30→0)
-              Adobe Fonts Acumin Pro Thin, 상단 가운데 정렬 */}
+              Adobe Fonts Acumin Pro Thin, 상단 가운데 정렬, 화면 상단 ~18% */}
           <div
-            className="absolute top-10 left-1/2 -translate-x-1/2 text-foreground/90 text-[88px] leading-none tabular-nums select-none"
+            className="absolute left-1/2 -translate-x-1/2 text-foreground/90 text-[88px] leading-none tabular-nums select-none"
             style={{
+              top: '18%',
               fontFamily: '"acumin-pro", "Helvetica Neue", "Inter", system-ui, sans-serif',
               fontWeight: 100,
               letterSpacing: '0.04em',
