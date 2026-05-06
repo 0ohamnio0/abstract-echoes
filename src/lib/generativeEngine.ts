@@ -623,13 +623,15 @@ export class GenerativeEngine {
       w?: number; h?: number;
       logoScale?: number; taglineScale?: number; tagOffsetY?: number;
       // 5-06 클라 — 상단 반원 로고 / 하단 로고 위치·스케일 슬라이더
-      banwonScale?: number; banwonOffsetY?: number; logoOffsetY?: number;
+      // 5-06 rina — 반원~파형 사이 여백 슬라이더 (banwonGap, h 비율)
+      banwonScale?: number; banwonOffsetY?: number; banwonGap?: number;
+      logoOffsetY?: number;
     } = {},
   ): Promise<string> {
     const {
       w = 1080, h = 2340,
       logoScale = 1, taglineScale = 1, tagOffsetY = 0,
-      banwonScale = 1, banwonOffsetY = 0, logoOffsetY = 0,
+      banwonScale = 1, banwonOffsetY = 0, banwonGap = 0.015, logoOffsetY = 0,
     } = opts;
     // 로고/태그라인 비동기 로드 보장 — 호출 시점에 아직 안 떠 있으면 기다림
     try {
@@ -653,21 +655,19 @@ export class GenerativeEngine {
 
     // 5-06 추가 / 5-06 클라 후속 — 상단 반원 헤더 마크 4배 확대 (base 72% × banwonScale).
     //   상단 여백·아래 여백도 압축해서 wave 영역 확보. banwonOffsetY로 y 미세조정.
+    //   banwonGap으로 마크 아래 여백(파형 시작점과의 거리) 슬라이더 조정.
     let banwonDstW = 0, banwonDstH = 0, banwonDstY = 0;
     let waveTopY = 0;
     if (banwonReady) {
       banwonDstW = w * 0.72 * banwonScale;
       banwonDstH = banwonDstW * (this.banwonImg.naturalHeight / this.banwonImg.naturalWidth);
       banwonDstY = h * (0.025 + banwonOffsetY);
-      waveTopY = banwonDstY + banwonDstH + h * 0.015; // 마크 아래 1.5% 여백
+      waveTopY = banwonDstY + banwonDstH + h * banwonGap;
     }
 
-    // rina 4-30 spec (download 화면 로고위치 수정.svg, 1080×2340 viewBox 기준)
-    //   - 로고 폭 55.27 / 1080 = 5.12% (PNG 자연 비율로 높이 자동)
-    //   - 태그라인 폭 426.39 / 1080 = 39.5% (SVG 자연 비율로 높이 자동)
-    // 5-06 클라 후속 — 하단 로고/태그라인 위치를 더 아래로 내려 wave 영역 확장
-    //   - 로고 top y = 72.1% → 83%
-    //   - 태그라인 bottom y = 80.7% → 95%
+    // rina 5-06 spec (260506 download 화면 로고위치 수정.svg, 1080×2340 viewBox 기준)
+    //   - 로고(동물 스택) 폭 89.88 / 1080 = 8.32%, top y = 1682.55 / 2340 = 71.91%
+    //   - 태그라인("Sounds Bremen") 폭 258.38 / 1080 = 23.92%, bottom y = 1903.06 / 2340 = 81.32%
     let waveAreaH = h;
     let blockTopY = h;
     let logoDstW = 0, logoDstH = 0, taglineDstW = 0, taglineDstH = 0;
@@ -675,13 +675,13 @@ export class GenerativeEngine {
     const padAboveLogo = Math.round(h * 0.03); // 로고 위 추가 여백
 
     if (logoReady && taglineReady) {
-      taglineDstW = w * (426.39 / 1080) * taglineScale;
+      taglineDstW = w * (258.38 / 1080) * taglineScale;
       taglineDstH = taglineDstW * (this.taglineImg.naturalHeight / this.taglineImg.naturalWidth);
-      taglineDstY = h * 0.95 - taglineDstH + h * tagOffsetY;
+      taglineDstY = h * 0.8132 - taglineDstH + h * tagOffsetY;
 
-      logoDstW = w * (55.27 / 1080) * logoScale;
+      logoDstW = w * (89.88 / 1080) * logoScale;
       logoDstH = logoDstW * (this.logoImg.naturalHeight / this.logoImg.naturalWidth);
-      logoDstY = h * (0.83 + logoOffsetY);
+      logoDstY = h * (0.7191 + logoOffsetY);
 
       blockTopY = logoDstY;
       waveAreaH = blockTopY - padAboveLogo;

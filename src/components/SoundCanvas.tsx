@@ -210,17 +210,17 @@ export interface PrintParams {
   lineSizeMul: number;    // oscilloscope lineSize 배율 (0.5..3.0)
   intensityMul: number;   // intensity 배율 (0.5..3.0)
   passes: number;         // 멀티패스 누적 (1..6)
-  // 4-30 후속 — portrait(QR 다운로드 화면) 로고/태그라인 layout 미세조정
-  logoScale: number;      // 동물(하단) 로고 폭 배율 (base 5.12% × scale)
-  taglineScale: number;   // "Life is a series..." 태그라인 폭 배율 (base 39.5% × scale)
+  // 5-06 rina (260506 download 화면 로고위치 수정.svg) — portrait(QR 다운로드 화면) 로고/태그라인 layout
+  logoScale: number;      // 동물(하단) 로고 폭 배율 (base 8.32% × scale)
+  taglineScale: number;   // "Sounds Bremen" 태그라인 폭 배율 (base 23.92% × scale)
   tagOffsetY: number;     // 태그라인 y 오프셋 (h 비율)
-  // 5-06 클라 — portrait 6 슬라이더 풀세트
   banwonScale: number;    // 상단 OH!BREMEN(반원) 로고 폭 배율 (base 72% × scale)
   banwonOffsetY: number;  // 상단 로고 y 오프셋 (h 비율)
+  banwonGap: number;      // 상단 로고와 음성 파형 사이 여백 (h 비율)
   logoOffsetY: number;    // 하단 로고 y 오프셋 (h 비율)
 }
 
-// 4-30 해민 튜닝값 + 5-06 클라 portrait 6 슬라이더 디폴트 확정 (감독님 시연 기준값).
+// 5-06 rina spec + 해민 패널 튜닝 최종값 (감독님 시연 확정, 최종 배포 디폴트).
 export const DEFAULT_PRINT_PARAMS: PrintParams = {
   ampScale: 4.0,
   widthBase: 1.3,
@@ -228,12 +228,13 @@ export const DEFAULT_PRINT_PARAMS: PrintParams = {
   lineSizeMul: 0.5,
   intensityMul: 2.65,
   passes: 4,
-  logoScale: 1.45,
-  taglineScale: 1.05,
-  tagOffsetY: 0.005,
-  banwonScale: 0.46,
-  banwonOffsetY: 0.030,
-  logoOffsetY: 0.030,
+  logoScale: 1.10,
+  taglineScale: 1.30,
+  tagOffsetY: 0.125,
+  banwonScale: 0.44,
+  banwonOffsetY: 0.005,
+  banwonGap: -0.010,
+  logoOffsetY: 0.115,
 };
 
 /**
@@ -959,6 +960,7 @@ export default function SoundCanvas() {
         tagOffsetY: printParams.tagOffsetY,
         banwonScale: printParams.banwonScale,
         banwonOffsetY: printParams.banwonOffsetY,
+        banwonGap: printParams.banwonGap,
         logoOffsetY: printParams.logoOffsetY,
       });
       const imgUrl = await uploadToImgbb(dataUrl);
@@ -995,6 +997,7 @@ export default function SoundCanvas() {
         tagOffsetY: printParams.tagOffsetY,
         banwonScale: printParams.banwonScale,
         banwonOffsetY: printParams.banwonOffsetY,
+        banwonGap: printParams.banwonGap,
         logoOffsetY: printParams.logoOffsetY,
       })
       .then((url) => {
@@ -1074,6 +1077,7 @@ export default function SoundCanvas() {
       tagOffsetY: printParams.tagOffsetY,
       banwonScale: printParams.banwonScale,
       banwonOffsetY: printParams.banwonOffsetY,
+      banwonGap: printParams.banwonGap,
       logoOffsetY: printParams.logoOffsetY,
     });
     downloadDataUrl(url, 'wallpaper');

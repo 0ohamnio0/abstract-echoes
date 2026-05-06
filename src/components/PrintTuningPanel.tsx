@@ -49,12 +49,13 @@ export default function PrintTuningPanel({ visible, onClose, params, onChange, o
         <div className="text-[10px] text-black/55 mb-1">상단 OH!BREMEN</div>
         <Slider label="Top logo size ×" value={params.banwonScale} min={0.3} max={1.5} step={0.02} onChange={v => set('banwonScale', v)} digits={2} />
         <Slider label="Top logo Y" value={params.banwonOffsetY} min={-0.05} max={0.20} step={0.005} onChange={v => set('banwonOffsetY', v)} digits={3} />
+        <Slider label="Wave gap" value={params.banwonGap} min={-0.05} max={0.20} step={0.005} onChange={v => set('banwonGap', v)} digits={3} />
         <div className="text-[10px] text-black/55 mt-2 mb-1">하단 동물 로고</div>
         <Slider label="Logo size ×" value={params.logoScale} min={0.5} max={3.0} step={0.05} onChange={v => set('logoScale', v)} digits={2} />
-        <Slider label="Logo Y" value={params.logoOffsetY} min={-0.20} max={0.10} step={0.005} onChange={v => set('logoOffsetY', v)} digits={3} />
+        <Slider label="Logo Y" value={params.logoOffsetY} min={-0.20} max={0.30} step={0.005} onChange={v => set('logoOffsetY', v)} digits={3} />
         <div className="text-[10px] text-black/55 mt-2 mb-1">태그라인</div>
         <Slider label="Tagline size ×" value={params.taglineScale} min={0.5} max={2.0} step={0.05} onChange={v => set('taglineScale', v)} digits={2} />
-        <Slider label="Tag Y" value={params.tagOffsetY} min={-0.20} max={0.10} step={0.005} onChange={v => set('tagOffsetY', v)} digits={3} />
+        <Slider label="Tag Y" value={params.tagOffsetY} min={-0.20} max={0.30} step={0.005} onChange={v => set('tagOffsetY', v)} digits={3} />
         {portraitPreview && (
           <div className="mt-2 flex flex-col items-center gap-1.5">
             <img

@@ -100,6 +100,7 @@ export class SpeechTrigger {
         const partial: string = msg.result?.partial?.trim() ?? '';
         if (!partial || partial === this.lastSeenPartial) return;
         this.lastSeenPartial = partial;
+        console.log('[SpeechTrigger:partial]', partial);
         this.matchTriggers(partial);
       });
 
@@ -107,6 +108,7 @@ export class SpeechTrigger {
         const text: string = msg.result?.text?.trim() ?? '';
         this.lastSeenPartial = '';
         if (!text) return;
+        console.log('[SpeechTrigger:final]', text);
         this.matchTriggers(text);
       });
 
