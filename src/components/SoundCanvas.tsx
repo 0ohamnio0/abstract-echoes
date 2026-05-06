@@ -228,13 +228,13 @@ export const DEFAULT_PRINT_PARAMS: PrintParams = {
   lineSizeMul: 0.5,
   intensityMul: 2.65,
   passes: 4,
-  logoScale: 1.10,
-  taglineScale: 1.30,
-  tagOffsetY: 0.030,
-  banwonScale: 0.44,
-  banwonOffsetY: 0.060,
+  logoScale: 0.90,
+  taglineScale: 0.95,
+  tagOffsetY: 0.090,
+  banwonScale: 0.32,
+  banwonOffsetY: 0.200,
   banwonGap: -0.010,
-  logoOffsetY: 0.030,
+  logoOffsetY: 0.095,
 };
 
 /**
