@@ -110,7 +110,7 @@ class SessionColorTracker {
 }
 
 // ── 타임라인 상수 ─────────────────────────────────────────────────
-const SESSION_CAP_MS = 30_000;   // 30초 — 9차 합의: cap 도달 시 showcase phase 자동 진입
+const SESSION_CAP_MS = 20_000;   // 20초 — 9차 합의: cap 도달 시 showcase phase 자동 진입 (5-26 30→20 단축)
 const LIVE_PORTION = 0.6;          // 화면 오른쪽 라이브 영역 비율 (최근 3초)
 const LIVE_WINDOW_MS = 3000;      // 라이브 영역에 매핑되는 최근 시간
 const DOWNSAMPLE_PER_FRAME = 8;   // 프레임당 누적 샘플 개수 (waveform에서 다운샘플)
@@ -329,6 +329,17 @@ export class GenerativeEngine {
         }
         this.sessionFrameTimes.push(now);
       }
+    }
+  }
+
+  // 트리거 단어 발화 시 후방 페인트 — onresult 지연(0.5~2초) 보상.
+  // 이미 sessionHues에 -1로 쌓인 최근 sampleCount개를 hue로 덮어써서
+  // 실제 발화한 파형 구간이 색칠됨 (무음 구간에 칠해지는 문제 해결).
+  paintBackwardHue(hue: number, sampleCount: number) {
+    const n = Math.min(sampleCount, this.sessionHues.length);
+    const start = this.sessionHues.length - n;
+    for (let i = start; i < this.sessionHues.length; i++) {
+      this.sessionHues[i] = hue;
     }
   }
 

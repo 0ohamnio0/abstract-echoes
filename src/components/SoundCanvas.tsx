@@ -177,13 +177,13 @@ const INTRO_BEAST_CONFIG = [
   },
 ] as const;
 
-type Phase = 'idle' | 'intro' | 'listening' | 'showcase';
+type Phase = 'idle' | 'pedalHint' | 'intro' | 'listening' | 'showcase';
 
 // Showcase: 체험 종료 후 LED 전면에 프레임화된 결과를 노출하는 단계
-// (a) 30초 cap 도달 자동 진입  (b) B 버튼 조기 종료
+// (a) 20초 cap 도달 자동 진입  (b) B 버튼 조기 종료
 const SHOWCASE_DURATION_MS = 20_000;
-// 체험(listening) 세션 cap — engine SESSION_CAP_MS와 동일 (30초)
-const SESSION_CAP_SECONDS = 30;
+// 체험(listening) 세션 cap — engine SESSION_CAP_MS와 동일 (20초)
+const SESSION_CAP_SECONDS = 20;
 
 // 9차 합의 — 단어별 컬러 이스터에그. 체험 중 트리거 단어 인식 시 history의 해당 구간
 // 0.3초 정도만 고유 hue로 칠해지고 세션 기본 hue로 자연 복귀. 인스타 "숨은 색 찾아보세요" 훅.
@@ -199,6 +199,10 @@ const TRIGGER_HUE_MAP: Record<TriggerWord, number> = {
 
 // 한 트리거의 컬러 페인트 지속 시간 (샘플 수 기준, 프레임당 24샘플 기준 15프레임 ≈ 0.25초)
 const TRIGGER_PAINT_FRAMES = 18;
+// 후방 페인트 — Web Speech API의 onresult는 발화 종료 후 0.5~2초 지연되어 도착.
+// 그 시점에 미래 샘플 칠해도 무음 구간이라 라인이 안 그려짐 → 이미 들어와 있는 최근 ~0.5초 파형을
+// 거꾸로 색칠. 한 단어("안녕", "사랑해") 폭에 맞춤. 24 × 30 = 720 (live), 8 × 30 = 240 (engine).
+const TRIGGER_BACKWARD_FRAMES = 30;
 
 // showcase 오실로스코프 sweep 튜닝 파라미터 (4-29 후속 — 클라 피드백 "더 풍성하게").
 //   - sweep 1회 렌더는 listening 누적 대비 얇아 보임 → passes(누적), 진폭/두께 배율로 보완
@@ -318,6 +322,7 @@ export default function SoundCanvas() {
   const idleTitleRafRef = useRef<number | null>(null);
   const introTimersRef = useRef<number[]>([]);
   const introAudioCacheRef = useRef<Record<string, HTMLAudioElement>>({});
+  const pedalClickAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // 동물 사운드 프리로드
   useEffect(() => {
@@ -329,6 +334,11 @@ export default function SoundCanvas() {
       cache[svg] = a;
     }
     introAudioCacheRef.current = cache;
+    // 페달 hint 클릭음 프리로드 — 페달 누름 confirmation
+    const click = new Audio('/pedal-hint/click.wav');
+    click.preload = 'auto';
+    click.volume = 0.7;
+    pedalClickAudioRef.current = click;
   }, []);
 
   /**
@@ -468,6 +478,10 @@ export default function SoundCanvas() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [introStep, setIntroStep] = useState(0);
   const [introExiting, setIntroExiting] = useState(false);
+  // 페달 hint stop-motion — 0/1 = pedal-down/up 2프레임 alternating, 2 = by/oh 로고 중앙 rise 단계
+  // (5ac1c0e introRiseShake "Logo rises from 60vh, scales up" 모티프 복원). idle → pedalHint → intro 순.
+  const [pedalHintFrame, setPedalHintFrame] = useState<0 | 1 | 2>(0);
+  const pedalHintTimersRef = useRef<number[]>([]);
   const [isActive, setIsActive] = useState(false);
   const [debugVolume, setDebugVolume] = useState(0);
   const [debugSpeaking, setDebugSpeaking] = useState(false);
@@ -500,7 +514,7 @@ export default function SoundCanvas() {
   const [showcaseImage, setShowcaseImage] = useState<string | null>(null);
   const [showcaseTimestamp, setShowcaseTimestamp] = useState<Date | null>(null);
   const showcaseTimerRef = useRef<number>(0);
-  // 5-06 클라 — 체험(listening) 화면 카운트다운 (30→0)
+  // 5-06 클라 — 체험(listening) 화면 카운트다운 (20→0)
   const [secondsLeft, setSecondsLeft] = useState<number>(SESSION_CAP_SECONDS);
   const secondsTickRef = useRef<number>(0);
   // showcase 오실로스코프 sweep 튜닝 — 패널 슬라이더 상태 + localStorage 영구화
@@ -684,7 +698,7 @@ export default function SoundCanvas() {
       setSessionCapped(engine.isSessionCapped());
     }
 
-    // 30초 cap 자동 종료 — 9차 합의. enterShowcase가 cancelAnimationFrame까지 처리
+    // 20초 cap 자동 종료 — 9차 합의. enterShowcase가 cancelAnimationFrame까지 처리
     if (engine.isSessionCapped() && !qrBusyRef.current) {
       enterShowcaseRef.current();
       return;
@@ -754,6 +768,17 @@ export default function SoundCanvas() {
         const triggerHue = TRIGGER_HUE_MAP[event.word];
         if (typeof triggerHue === 'number') {
           activeTriggerRef.current = { hue: triggerHue, framesRemaining: TRIGGER_PAINT_FRAMES };
+          // 후방 페인트 — STT 지연 보상. live hueBuf의 최근 ~1.5초 구간(실제 발화 파형이 들어있는)
+          // 을 거꾸로 색칠 + engine.sessionHues에도 동일 윈도우 동기 (showcase 캡처 일관성)
+          const hueBuf = historyHueRef.current;
+          if (hueBuf) {
+            const liveBackwardSamples = HISTORY_SAMPLES_PER_FRAME * TRIGGER_BACKWARD_FRAMES;
+            const end = Math.min(historyIdxRef.current, hueBuf.length);
+            const start = Math.max(0, end - liveBackwardSamples);
+            for (let i = start; i < end; i++) hueBuf[i] = triggerHue;
+          }
+          const engineDownsample = engineRef.current?.getDownsamplePerFrame() ?? 8;
+          engineRef.current?.paintBackwardHue(triggerHue, engineDownsample * TRIGGER_BACKWARD_FRAMES);
         }
       });
       speech.start();
@@ -800,8 +825,14 @@ export default function SoundCanvas() {
     setPhase('idle');
   }, [clearIntroTimers]);
 
+  const clearPedalHintTimers = useCallback(() => {
+    for (const t of pedalHintTimersRef.current) window.clearTimeout(t);
+    pedalHintTimersRef.current = [];
+  }, []);
+
   const startExperience = useCallback(() => {
-    if (phase !== 'idle') return;
+    if (phase !== 'idle' && phase !== 'pedalHint') return;
+    clearPedalHintTimers();
     cancelAnimationFrame(idleAnimFrameRef.current);
     clearIntroTimers();
     engineRef.current?.clear();
@@ -838,7 +869,25 @@ export default function SoundCanvas() {
         void startMic();
       }, 12500),
     );
-  }, [phase, clearIntroTimers, startMic, playBeastAudio]);
+  }, [phase, clearIntroTimers, clearPedalHintTimers, startMic, playBeastAudio]);
+
+  // idle → pedalHint(2프레임 한 사이클) → intro. 페달 꾹 누르는 사용자에게
+  // "한 번 누르고 발 떼"를 가르치는 hint. 종료 조건은 시간 기반 — keyup 무시.
+  const startPedalHint = useCallback(() => {
+    if (phase !== 'idle') return;
+    clearPedalHintTimers();
+    setPedalHintFrame(0);
+    setPhase('pedalHint');
+    // 페달 누름 클릭음 (페달 동작 confirmation)
+    try {
+      const click = pedalClickAudioRef.current;
+      if (click) { click.currentTime = 0; void click.play(); }
+    } catch { /* autoplay 차단 등 무시 */ }
+    // 시퀀스: down(0~800) → up(800~1600) → by/oh rise to center(1600~2800) → intro(2800)
+    pedalHintTimersRef.current.push(window.setTimeout(() => setPedalHintFrame(1), 800));
+    pedalHintTimersRef.current.push(window.setTimeout(() => setPedalHintFrame(2), 1600));
+    pedalHintTimersRef.current.push(window.setTimeout(() => startExperience(), 2800));
+  }, [phase, clearPedalHintTimers, startExperience]);
 
   const clear = useCallback(() => {
     engineRef.current?.clear();
@@ -848,6 +897,7 @@ export default function SoundCanvas() {
   const resetAll = useCallback(() => {
     clearTimeout(showcaseTimerRef.current);
     clearInterval(qrTimerRef.current);
+    clearPedalHintTimers();
     setQrData(null);
     setIsUploading(false);
     setShowSaveMenu(false);
@@ -859,7 +909,7 @@ export default function SoundCanvas() {
     setOscFreeze(false);
     stopMic();
     clear();
-  }, [stopMic, clear]);
+  }, [stopMic, clear, clearPedalHintTimers]);
 
   /**
    * showcase sweep 렌더 — sessionAmps 30s 전체를 oscilloscope에 그려 GL canvas dataURL 반환.
@@ -915,7 +965,7 @@ export default function SoundCanvas() {
 
   /**
    * 체험 종료 → 10초 showcase phase 진입.
-   * (a) 30초 cap 자동 도달, (b) B 버튼 조기 종료 — 두 분기 모두 이 함수로 수렴.
+   * (a) 20초 cap 자동 도달, (b) B 버튼 조기 종료 — 두 분기 모두 이 함수로 수렴.
    *
    * 흐름: draw loop 정지 → oscilloscope freeze → 알파 투명 이미지 캡처
    *   → showcase phase 전환 → 백그라운드 업로드 → QR 표시
@@ -1030,8 +1080,8 @@ export default function SoundCanvas() {
     }, SHOWCASE_DURATION_MS);
   }, [phase, showPrintPanel, resetAll]);
 
-  // 5-06 클라 — 체험(listening) 페이즈 카운트다운: 첫 발화 시점(engine.getSessionStartMs)부터 30→0
-  // 발화 전에는 30 그대로 유지 → 사람이 말 시작하면 카운트 시작
+  // 5-06 클라 — 체험(listening) 페이즈 카운트다운: 첫 발화 시점(engine.getSessionStartMs)부터 20→0
+  // 발화 전에는 20 그대로 유지 → 사람이 말 시작하면 카운트 시작
   useEffect(() => {
     if (phase !== 'listening') {
       clearInterval(secondsTickRef.current);
@@ -1123,7 +1173,7 @@ export default function SoundCanvas() {
         }
         return;
       }
-      // B key (페달): idle → 체험 시작 / listening → showcase 조기 진입 / showcase → idle 복귀
+      // B key (페달): idle → pedalHint(800ms) → intro / listening → showcase 조기 진입 / showcase → idle 복귀
       if ((e.code === 'KeyB' && !e.ctrlKey && !e.shiftKey && !e.altKey)) {
         if ((e.target as HTMLElement).tagName === 'INPUT') return;
         e.preventDefault();
@@ -1132,7 +1182,7 @@ export default function SoundCanvas() {
         } else if (phase === 'showcase') {
           resetAll();
         } else if (phase === 'idle') {
-          startExperience();
+          startPedalHint();
         }
         return;
       }
@@ -1155,6 +1205,9 @@ export default function SoundCanvas() {
           clearIntroTimers();
           setIntroStep(0);
           setPhase('idle');
+        } else if (phase === 'pedalHint') {
+          clearPedalHintTimers();
+          setPhase('idle');
         } else {
           resetAll();
         }
@@ -1163,7 +1216,7 @@ export default function SoundCanvas() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [phase, startExperience, stopMic, clearIntroTimers, resetAll, enterShowcase]);
+  }, [phase, startPedalHint, stopMic, clearIntroTimers, clearPedalHintTimers, resetAll, enterShowcase]);
 
   useEffect(() => {
     return () => {
@@ -1490,6 +1543,55 @@ export default function SoundCanvas() {
           />
           <img src="/by_oh_bremen_logo.svg" alt="" className="h-[96px] w-auto max-w-[90vw] opacity-90" />
         </div>
+      )}
+
+      {phase === 'pedalHint' && (
+        <>
+          {/* 페달 stop-motion — frame 2(by/oh rise 단계)에선 fade out */}
+          <div
+            className="absolute inset-0 pointer-events-none z-0 flex items-center justify-center"
+            style={{
+              opacity: pedalHintFrame === 2 ? 0 : 1,
+              transition: 'opacity 0.4s ease-out',
+            }}
+          >
+            <img
+              src={pedalHintFrame === 0 ? '/pedal-hint/pedal-down.webp' : '/pedal-hint/pedal-up.webp'}
+              alt=""
+              aria-hidden
+              className="block h-auto w-auto max-h-[64vh] max-w-[64vw] object-contain"
+              style={{ transform: 'translateY(-77px) scale(0.83)', clipPath: 'inset(4px)' }}
+            />
+          </div>
+          {/* "바닥의 패드를 ~" 글씨 + by/oh 로고 — idle과 동일 flex column 구조 유지 (글씨 위치 일관)
+              frame 2(by/oh rise)에는 글씨 fade out + by/oh만 transform으로 중앙 이동
+              5ac1c0e의 introRiseShake 모티프 (Logo rises, scales up) cubic-bezier easing 차용 */}
+          <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-2 pointer-events-none">
+            <img
+              src="/floor_pad_hint_text.svg"
+              alt=""
+              aria-hidden
+              className="h-[25px] w-auto max-w-[90vw] opacity-90"
+              style={{
+                transform: 'translateY(-20px)',
+                opacity: pedalHintFrame === 2 ? 0 : 1,
+                transition: 'opacity 0.4s ease-out',
+              }}
+            />
+            <img
+              src="/by_oh_bremen_logo.svg"
+              alt=""
+              aria-hidden
+              className="h-[96px] w-auto max-w-[90vw] opacity-90"
+              style={{
+                transition: 'transform 1.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                transform: pedalHintFrame === 2
+                  ? 'translateY(-40vh) scale(2.5)'
+                  : 'translateY(0) scale(1)',
+              }}
+            />
+          </div>
+        </>
       )}
 
       {phase === 'intro' && (
