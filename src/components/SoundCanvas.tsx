@@ -6,7 +6,7 @@ import { GenerativeEngine } from '@/lib/generativeEngine';
 import { InstrumentEngine } from '@/lib/instrumentEngine';
 import { Oscilloscope, waveformFloatToXY } from '@/lib/oscilloscope';
 import { createDefaultParams, extractValues, TuningParams, ParamDef } from '@/lib/tuningParams';
-import { SpeechTrigger, type TriggerWord } from '@/lib/speechTrigger';
+import { SpeechTrigger, type TriggerWord, type SpeechTriggerState } from '@/lib/speechTrigger';
 import TuningPanel from './TuningPanel';
 import OscilloscopePanel, { type SignalGenSettings } from './OscilloscopePanel';
 import PrintTuningPanel from './PrintTuningPanel';
@@ -496,6 +496,17 @@ export default function SoundCanvas() {
     if (typeof window === 'undefined') return true;
     return !new URLSearchParams(window.location.search).has('settings');
   });
+  const [isDebugMode] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).has('debug');
+  });
+  const [speechState, setSpeechState] = useState<SpeechTriggerState>({
+    status: 'idle',
+    lastError: null,
+    lastTranscript: null,
+    transcriptCount: 0,
+    restartCount: 0,
+  });
   const [modeIndicator, setModeIndicator] = useState(false);
   const [tuningParams, setTuningParams] = useState<TuningParams>(loadParams);
   // 청각 이스터에그 — 트리거 단어 인식 시 짧은 bell chime. 시각 텍스트는 숨김.
@@ -780,7 +791,7 @@ export default function SoundCanvas() {
           const engineDownsample = engineRef.current?.getDownsamplePerFrame() ?? 8;
           engineRef.current?.paintBackwardHue(triggerHue, engineDownsample * TRIGGER_BACKWARD_FRAMES);
         }
-      });
+      }, state => setSpeechState(state));
       speech.start();
       speechRef.current = speech;
 
@@ -1718,6 +1729,15 @@ export default function SoundCanvas() {
                 })}
             </>
           )}
+        </div>
+      )}
+
+      {isDebugMode && phase === 'listening' && (
+        <div className="absolute top-3 left-3 z-50 bg-black/80 text-green-300 text-[11px] leading-tight px-3 py-2 rounded font-mono pointer-events-none whitespace-nowrap">
+          <div>SpeechTrigger: <span className={speechState.status === 'error' ? 'text-red-400' : 'text-green-300'}>{speechState.status}</span></div>
+          <div>error: {speechState.lastError ?? '—'}</div>
+          <div>last: {speechState.lastTranscript ?? '—'}</div>
+          <div>transcripts: {speechState.transcriptCount} · restarts: {speechState.restartCount}</div>
         </div>
       )}
 

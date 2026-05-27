@@ -8,6 +8,14 @@ export interface TriggerEvent {
   transcript: string;
 }
 
+export interface SpeechTriggerState {
+  status: 'idle' | 'starting' | 'running' | 'error' | 'stopped';
+  lastError: string | null;
+  lastTranscript: string | null;
+  transcriptCount: number;
+  restartCount: number;
+}
+
 // Trigger word mapping: Korean phrases → event type
 const TRIGGER_MAP: { pattern: RegExp; word: TriggerWord }[] = [
   { pattern: /사랑해|사랑|좋아해|좋아/, word: 'love' },
@@ -23,26 +31,47 @@ export class SpeechTrigger {
   private recognition: any = null;
   private running = false;
   private onTrigger: ((event: TriggerEvent) => void) | null = null;
+  private onStateChange: ((state: SpeechTriggerState) => void) | null = null;
   private cooldowns = new Map<TriggerWord, number>();
   private cooldownMs = 2000;
   private restartTimer: number = 0;
   private consecutiveRestarts = 0;
   private lastStartTime = 0;
   private hadResult = false;
+  private state: SpeechTriggerState = {
+    status: 'idle',
+    lastError: null,
+    lastTranscript: null,
+    transcriptCount: 0,
+    restartCount: 0,
+  };
 
-  constructor(onTrigger: (event: TriggerEvent) => void) {
+  constructor(
+    onTrigger: (event: TriggerEvent) => void,
+    onStateChange?: (state: SpeechTriggerState) => void,
+  ) {
     this.onTrigger = onTrigger;
+    this.onStateChange = onStateChange ?? null;
+  }
+
+  private emitState() {
+    this.onStateChange?.({ ...this.state });
   }
 
   start(): boolean {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       console.warn('[SpeechTrigger] Web Speech API not supported');
+      this.state.status = 'error';
+      this.state.lastError = 'api-unsupported';
+      this.emitState();
       return false;
     }
 
     this.running = true;
     this.consecutiveRestarts = 0;
+    this.state.status = 'starting';
+    this.emitState();
     this.createRecognition(SpeechRecognition);
     return true;
   }
@@ -71,6 +100,10 @@ export class SpeechTrigger {
         const transcript = event.results[i][0].transcript.trim();
         if (!transcript) continue;
 
+        this.state.transcriptCount++;
+        this.state.lastTranscript = transcript;
+        this.emitState();
+
         for (const { pattern, word } of TRIGGER_MAP) {
           if (pattern.test(transcript)) {
             const lastTime = this.cooldowns.get(word) || 0;
@@ -88,6 +121,9 @@ export class SpeechTrigger {
     this.recognition.onerror = (event: any) => {
       if (!this.running) return;
       if (event.error === 'aborted') return;
+      this.state.lastError = event.error;
+      this.state.status = 'error';
+      this.emitState();
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         console.warn('[SpeechTrigger] Permission denied, stopping');
         this.running = false;
@@ -123,10 +159,15 @@ export class SpeechTrigger {
 
     try {
       this.recognition.start();
+      this.state.status = 'running';
+      this.emitState();
       if (this.consecutiveRestarts === 0) {
         console.log('[SpeechTrigger] Started Korean speech recognition');
       }
     } catch {
+      this.state.status = 'error';
+      this.state.lastError = 'start-throw';
+      this.emitState();
       this.scheduleRestart(3000);
     }
   }
@@ -134,6 +175,8 @@ export class SpeechTrigger {
   private scheduleRestart(delay: number) {
     clearTimeout(this.restartTimer);
     if (!this.running) return;
+    this.state.restartCount++;
+    this.emitState();
     this.restartTimer = window.setTimeout(() => {
       if (this.running) this.createRecognition();
     }, delay);
@@ -144,6 +187,8 @@ export class SpeechTrigger {
     clearTimeout(this.restartTimer);
     try { this.recognition?.stop(); } catch {}
     this.recognition = null;
+    this.state.status = 'stopped';
+    this.emitState();
   }
 
   isRunning(): boolean {

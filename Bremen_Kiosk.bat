@@ -13,15 +13,12 @@ if "%CHROME%"=="" (
 )
 
 set "URL=https://abstract-echoes.vercel.app"
-set "PROFILE=%LOCALAPPDATA%\BremenKioskProfile"
 
 start "" "%CHROME%" ^
   --kiosk ^
   --app=%URL% ^
-  --user-data-dir="%PROFILE%" ^
   --autoplay-policy=no-user-gesture-required ^
   --use-fake-ui-for-media-stream ^
-  --auto-accept-camera-and-microphone-capture ^
   --no-first-run ^
   --noerrdialogs ^
   --disable-infobars ^
