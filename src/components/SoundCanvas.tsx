@@ -1547,37 +1547,40 @@ export default function SoundCanvas() {
 
       {phase === 'pedalHint' && (
         <>
-          {/* 페달 stop-motion — frame 2(by/oh rise 단계)에선 fade out */}
+          {/* 페달 stop-motion + "한번만 살짝!" 손글씨 오버레이 — frame 2에 함께 fade out → intro 크로스페이드 */}
           <div
             className="absolute inset-0 pointer-events-none z-0 flex items-center justify-center"
             style={{
               opacity: pedalHintFrame === 2 ? 0 : 1,
-              transition: 'opacity 0.4s ease-out',
+              transition: 'opacity 0.5s ease-out',
             }}
           >
-            <img
-              src={pedalHintFrame === 0 ? '/pedal-hint/pedal-down.webp' : '/pedal-hint/pedal-up.webp'}
-              alt=""
-              aria-hidden
-              className="block h-auto w-auto max-h-[64vh] max-w-[64vw] object-contain"
-              style={{ transform: 'translateY(-77px) scale(0.83)', clipPath: 'inset(4px)' }}
-            />
+            <div className="relative" style={{ transform: 'translateY(-77px) scale(0.83)' }}>
+              <img
+                src={pedalHintFrame === 0 ? '/pedal-hint/pedal-down.webp' : '/pedal-hint/pedal-up.webp'}
+                alt=""
+                aria-hidden
+                className="block h-auto w-auto max-h-[64vh] max-w-[64vw] object-contain"
+                style={{ clipPath: 'inset(4px)', transform: 'translateX(-15%)' }}
+              />
+              <img
+                src="/pedal-hint/hanbeonman.webp"
+                alt=""
+                aria-hidden
+                className="absolute object-contain"
+                style={{
+                  top: '14%',
+                  left: '48%',
+                  height: '44%',
+                  width: 'auto',
+                  transform: 'scale(0.8)',
+                  transformOrigin: 'top left',
+                }}
+              />
+            </div>
           </div>
-          {/* "바닥의 패드를 ~" 글씨 + by/oh 로고 — idle과 동일 flex column 구조 유지 (글씨 위치 일관)
-              frame 2(by/oh rise)에는 글씨 fade out + by/oh만 transform으로 중앙 이동
-              5ac1c0e의 introRiseShake 모티프 (Logo rises, scales up) cubic-bezier easing 차용 */}
-          <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-2 pointer-events-none">
-            <img
-              src="/floor_pad_hint_text.svg"
-              alt=""
-              aria-hidden
-              className="h-[25px] w-auto max-w-[90vw] opacity-90"
-              style={{
-                transform: 'translateY(-20px)',
-                opacity: pedalHintFrame === 2 ? 0 : 1,
-                transition: 'opacity 0.4s ease-out',
-              }}
-            />
+          {/* by/oh bremen 로고 — idle과 동일 위치 유지(전환 seamless), frame 2에 떠오르며 intro 거대 로고로 브리지 */}
+          <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center pointer-events-none">
             <img
               src="/by_oh_bremen_logo.svg"
               alt=""
