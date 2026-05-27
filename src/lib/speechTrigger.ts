@@ -14,6 +14,8 @@ export interface SpeechTriggerState {
   lastTranscript: string | null;
   transcriptCount: number;
   restartCount: number;
+  availability: 'unknown' | 'available' | 'downloadable' | 'downloading' | 'unavailable' | 'unsupported';
+  processLocally: boolean;
 }
 
 // Trigger word mapping: Korean phrases → event type
@@ -44,6 +46,8 @@ export class SpeechTrigger {
     lastTranscript: null,
     transcriptCount: 0,
     restartCount: 0,
+    availability: 'unknown',
+    processLocally: false,
   };
 
   constructor(
@@ -72,8 +76,55 @@ export class SpeechTrigger {
     this.consecutiveRestarts = 0;
     this.state.status = 'starting';
     this.emitState();
-    this.createRecognition(SpeechRecognition);
+    // Chrome 138+ on-device recognition 시도 (클라우드 STT 우회). 실패 시 클라우드로 폴백
+    void this.prepareOnDevice(SpeechRecognition).finally(() => {
+      if (this.running) this.createRecognition(SpeechRecognition);
+    });
     return true;
+  }
+
+  private async prepareOnDevice(Ctor: any) {
+    try {
+      const avail = (Ctor as any).available;
+      const install = (Ctor as any).install;
+      if (typeof avail !== 'function') {
+        this.state.availability = 'unsupported';
+        this.emitState();
+        return;
+      }
+      const opts = { langs: ['ko-KR'], processLocally: true };
+      let availability: string;
+      try {
+        availability = await avail.call(Ctor, opts);
+      } catch {
+        availability = await avail.call(Ctor, { lang: 'ko-KR', processLocally: true });
+      }
+      this.state.availability = (availability as any) ?? 'unknown';
+      this.emitState();
+      console.log('[SpeechTrigger] on-device availability:', availability);
+
+      if (availability === 'downloadable' && typeof install === 'function') {
+        this.state.availability = 'downloading';
+        this.emitState();
+        try {
+          const ok = await install.call(Ctor, opts);
+          this.state.availability = ok ? 'available' : 'unavailable';
+        } catch {
+          try {
+            const ok = await install.call(Ctor, { lang: 'ko-KR', processLocally: true });
+            this.state.availability = ok ? 'available' : 'unavailable';
+          } catch {
+            this.state.availability = 'unavailable';
+          }
+        }
+        this.emitState();
+        console.log('[SpeechTrigger] install result:', this.state.availability);
+      }
+    } catch (e) {
+      console.warn('[SpeechTrigger] on-device prepare failed:', e);
+      this.state.availability = 'unsupported';
+      this.emitState();
+    }
   }
 
   private createRecognition(SpeechRecognition?: any) {
@@ -89,6 +140,20 @@ export class SpeechTrigger {
     this.recognition.continuous = true;
     this.recognition.interimResults = true;
     this.recognition.maxAlternatives = 1;
+    // on-device 가능하면 클라우드 STT 우회 (Chrome 138+ processLocally)
+    if (this.state.availability === 'available' && 'processLocally' in this.recognition) {
+      try {
+        this.recognition.processLocally = true;
+        this.state.processLocally = true;
+        this.emitState();
+      } catch {
+        this.state.processLocally = false;
+        this.emitState();
+      }
+    } else {
+      this.state.processLocally = false;
+      this.emitState();
+    }
     this.hadResult = false;
     this.lastStartTime = Date.now();
 

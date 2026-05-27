@@ -523,6 +523,8 @@ export default function SoundCanvas() {
     lastTranscript: null,
     transcriptCount: 0,
     restartCount: 0,
+    availability: 'unknown',
+    processLocally: false,
   });
   const [modeIndicator, setModeIndicator] = useState(false);
   const [tuningParams, setTuningParams] = useState<TuningParams>(loadParams);
@@ -1735,6 +1737,7 @@ export default function SoundCanvas() {
         <div className="absolute top-3 left-3 z-50 bg-black/80 text-green-300 text-[11px] leading-tight px-3 py-2 rounded font-mono whitespace-nowrap">
           <div className="pointer-events-none">
             <div>SpeechTrigger: <span className={speechState.status === 'error' ? 'text-red-400' : 'text-green-300'}>{speechState.status}</span></div>
+            <div>availability: <span className={speechState.availability === 'available' ? 'text-green-300' : speechState.availability === 'unavailable' || speechState.availability === 'unsupported' ? 'text-red-400' : 'text-yellow-300'}>{speechState.availability}</span> · processLocally: <span className={speechState.processLocally ? 'text-green-300' : 'text-yellow-300'}>{String(speechState.processLocally)}</span></div>
             <div>error: {speechState.lastError ?? '—'}</div>
             <div>last: {speechState.lastTranscript ?? '—'}</div>
             <div>transcripts: {speechState.transcriptCount} · restarts: {speechState.restartCount}</div>
