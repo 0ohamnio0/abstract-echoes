@@ -393,6 +393,23 @@ export default function SoundCanvas() {
     }
   }, []);
 
+  const simulateTriggerEffect = useCallback((word: TriggerWord) => {
+    engineRef.current?.triggerSpecialEvent(word);
+    playChime();
+    const triggerHue = TRIGGER_HUE_MAP[word];
+    if (typeof triggerHue !== 'number') return;
+    activeTriggerRef.current = { hue: triggerHue, framesRemaining: TRIGGER_PAINT_FRAMES };
+    const hueBuf = historyHueRef.current;
+    if (hueBuf) {
+      const liveBackwardSamples = HISTORY_SAMPLES_PER_FRAME * TRIGGER_BACKWARD_FRAMES;
+      const end = Math.min(historyIdxRef.current, hueBuf.length);
+      const start = Math.max(0, end - liveBackwardSamples);
+      for (let i = start; i < end; i++) hueBuf[i] = triggerHue;
+    }
+    const engineDownsample = engineRef.current?.getDownsamplePerFrame() ?? 8;
+    engineRef.current?.paintBackwardHue(triggerHue, engineDownsample * TRIGGER_BACKWARD_FRAMES);
+  }, [playChime]);
+
   /**
    * Showcase 진입 시 "따라란~" 3음 상행 아르페지오.
    * A 마이너 펜타토닉 E5→A5→C6, 하모니움 PeriodicWave [1,0.3,0.1] + feedback delay.
@@ -772,25 +789,7 @@ export default function SoundCanvas() {
       historyIdxRef.current = HISTORY_LEN;
 
       const speech = new SpeechTrigger(event => {
-        engineRef.current?.triggerSpecialEvent(event.word);
-        // 청각 이스터에그: 인식됨을 짧은 bell chime으로만 피드백 (시각 텍스트는 숨김)
-        playChime();
-        // 시각 이스터에그: 해당 단어 고유 hue를 0.3초 동안 새 샘플에 페인트 → 세션 색 흐름 속에 한 줄로 박힘
-        const triggerHue = TRIGGER_HUE_MAP[event.word];
-        if (typeof triggerHue === 'number') {
-          activeTriggerRef.current = { hue: triggerHue, framesRemaining: TRIGGER_PAINT_FRAMES };
-          // 후방 페인트 — STT 지연 보상. live hueBuf의 최근 ~1.5초 구간(실제 발화 파형이 들어있는)
-          // 을 거꾸로 색칠 + engine.sessionHues에도 동일 윈도우 동기 (showcase 캡처 일관성)
-          const hueBuf = historyHueRef.current;
-          if (hueBuf) {
-            const liveBackwardSamples = HISTORY_SAMPLES_PER_FRAME * TRIGGER_BACKWARD_FRAMES;
-            const end = Math.min(historyIdxRef.current, hueBuf.length);
-            const start = Math.max(0, end - liveBackwardSamples);
-            for (let i = start; i < end; i++) hueBuf[i] = triggerHue;
-          }
-          const engineDownsample = engineRef.current?.getDownsamplePerFrame() ?? 8;
-          engineRef.current?.paintBackwardHue(triggerHue, engineDownsample * TRIGGER_BACKWARD_FRAMES);
-        }
+        simulateTriggerEffect(event.word);
       }, state => setSpeechState(state));
       speech.start();
       speechRef.current = speech;
@@ -1733,11 +1732,27 @@ export default function SoundCanvas() {
       )}
 
       {isDebugMode && phase === 'listening' && (
-        <div className="absolute top-3 left-3 z-50 bg-black/80 text-green-300 text-[11px] leading-tight px-3 py-2 rounded font-mono pointer-events-none whitespace-nowrap">
-          <div>SpeechTrigger: <span className={speechState.status === 'error' ? 'text-red-400' : 'text-green-300'}>{speechState.status}</span></div>
-          <div>error: {speechState.lastError ?? '—'}</div>
-          <div>last: {speechState.lastTranscript ?? '—'}</div>
-          <div>transcripts: {speechState.transcriptCount} · restarts: {speechState.restartCount}</div>
+        <div className="absolute top-3 left-3 z-50 bg-black/80 text-green-300 text-[11px] leading-tight px-3 py-2 rounded font-mono whitespace-nowrap">
+          <div className="pointer-events-none">
+            <div>SpeechTrigger: <span className={speechState.status === 'error' ? 'text-red-400' : 'text-green-300'}>{speechState.status}</span></div>
+            <div>error: {speechState.lastError ?? '—'}</div>
+            <div>last: {speechState.lastTranscript ?? '—'}</div>
+            <div>transcripts: {speechState.transcriptCount} · restarts: {speechState.restartCount}</div>
+          </div>
+          <div className="mt-2 pt-2 border-t border-green-300/30 flex flex-wrap gap-1">
+            <span className="text-green-300/60 mr-1">TEST:</span>
+            {(Object.keys(TRIGGER_HUE_MAP) as TriggerWord[]).map(word => (
+              <button
+                key={word}
+                type="button"
+                onClick={() => simulateTriggerEffect(word)}
+                className="px-1.5 py-0.5 bg-green-300/10 hover:bg-green-300/30 text-green-300 rounded transition-colors"
+                style={{ color: `hsl(${TRIGGER_HUE_MAP[word]}, 80%, 65%)` }}
+              >
+                {word}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
