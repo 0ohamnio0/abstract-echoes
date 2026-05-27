@@ -556,6 +556,7 @@ export default function SoundCanvas() {
   const enterShowcaseRef = useRef<() => void>(() => {});
 
   const [showDebugUI, setShowDebugUI] = useState(false);
+  const [showSpeechDebug, setShowSpeechDebug] = useState(false);
   const [sessionCapped, setSessionCapped] = useState(false);
   const [showOscPanel, setShowOscPanel] = useState(false);
   const [oscPreAmp, setOscPreAmp] = useState(1.0);
@@ -895,10 +896,10 @@ export default function SoundCanvas() {
       const click = pedalClickAudioRef.current;
       if (click) { click.currentTime = 0; void click.play(); }
     } catch { /* autoplay 차단 등 무시 */ }
-    // 시퀀스: down(0~800) → up(800~1600) → by/oh rise to center(1600~2800) → intro(2800)
+    // 시퀀스: down(0~800) → up(800~1600) → center dissolve(1600~2100) → intro crossfade(2000)
     pedalHintTimersRef.current.push(window.setTimeout(() => setPedalHintFrame(1), 800));
     pedalHintTimersRef.current.push(window.setTimeout(() => setPedalHintFrame(2), 1600));
-    pedalHintTimersRef.current.push(window.setTimeout(() => startExperience(), 2800));
+    pedalHintTimersRef.current.push(window.setTimeout(() => startExperience(), 2000));
   }, [phase, clearPedalHintTimers, startExperience]);
 
   const clear = useCallback(() => {
@@ -1164,6 +1165,12 @@ export default function SoundCanvas() {
         setModeIndicator(true);
         clearTimeout(modeIndicatorTimerRef.current);
         modeIndicatorTimerRef.current = window.setTimeout(() => setModeIndicator(false), 2000);
+        return;
+      }
+      if (e.key === '`' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+        if ((e.target as HTMLElement).tagName === 'INPUT') return;
+        e.preventDefault();
+        setShowSpeechDebug(prev => !prev);
         return;
       }
       // O key: 오실로스코프 튜닝 패널 토글 (listening 중에만)
@@ -1558,55 +1565,37 @@ export default function SoundCanvas() {
       )}
 
       {phase === 'pedalHint' && (
-        <>
-          {/* 페달 stop-motion + "한번만 살짝!" 손글씨 오버레이 — frame 2에 함께 fade out → intro 크로스페이드 */}
-          <div
-            className="absolute inset-0 pointer-events-none z-0 flex items-center justify-center"
-            style={{
-              opacity: pedalHintFrame === 2 ? 0 : 1,
-              transition: 'opacity 0.5s ease-out',
-            }}
-          >
-            <div className="relative" style={{ transform: 'translateY(-77px) scale(0.83)' }}>
-              <img
-                src={pedalHintFrame === 0 ? '/pedal-hint/pedal-down.webp' : '/pedal-hint/pedal-up.webp'}
-                alt=""
-                aria-hidden
-                className="block h-auto w-auto max-h-[64vh] max-w-[64vw] object-contain"
-                style={{ clipPath: 'inset(4px)', transform: 'translateX(-15%)' }}
-              />
-              <img
-                src="/pedal-hint/hanbeonman.webp"
-                alt=""
-                aria-hidden
-                className="absolute object-contain"
-                style={{
-                  top: '14%',
-                  left: '48%',
-                  height: '44%',
-                  width: 'auto',
-                  transform: 'scale(0.8)',
-                  transformOrigin: 'top left',
-                }}
-              />
-            </div>
-          </div>
-          {/* by/oh bremen 로고 — idle과 동일 위치 유지(전환 seamless), frame 2에 떠오르며 intro 거대 로고로 브리지 */}
-          <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center pointer-events-none">
+        <div
+          className="absolute inset-0 pointer-events-none z-0 flex items-center justify-center"
+          style={{
+            opacity: pedalHintFrame === 2 ? 0 : 1,
+            transition: 'opacity 0.5s ease-out',
+          }}
+        >
+          <div className="relative" style={{ transform: 'translateY(-77px) scale(0.83)' }}>
             <img
-              src="/by_oh_bremen_logo.svg"
+              src={pedalHintFrame === 0 ? '/pedal-hint/pedal-down.webp' : '/pedal-hint/pedal-up.webp'}
               alt=""
               aria-hidden
-              className="h-[96px] w-auto max-w-[90vw] opacity-90"
+              className="block h-auto w-auto max-h-[64vh] max-w-[64vw] object-contain"
+              style={{ clipPath: 'inset(4px)', transform: 'translateX(-15%)' }}
+            />
+            <img
+              src="/pedal-hint/hanbeonman.webp"
+              alt=""
+              aria-hidden
+              className="absolute object-contain"
               style={{
-                transition: 'transform 1.2s cubic-bezier(0.16, 1, 0.3, 1)',
-                transform: pedalHintFrame === 2
-                  ? 'translateY(-40vh) scale(2.5)'
-                  : 'translateY(0) scale(1)',
+                top: '14%',
+                left: '48%',
+                height: '44%',
+                width: 'auto',
+                transform: 'scale(0.8)',
+                transformOrigin: 'top left',
               }}
             />
           </div>
-        </>
+        </div>
       )}
 
       {phase === 'intro' && (
@@ -1733,7 +1722,7 @@ export default function SoundCanvas() {
         </div>
       )}
 
-      {isDebugMode && phase === 'listening' && (
+      {isDebugMode && phase === 'listening' && showSpeechDebug && (
         <div className="absolute top-3 left-3 z-50 bg-black/80 text-green-300 text-[11px] leading-tight px-3 py-2 rounded font-mono whitespace-nowrap">
           <div className="pointer-events-none">
             <div>SpeechTrigger: <span className={speechState.status === 'error' ? 'text-red-400' : 'text-green-300'}>{speechState.status}</span></div>
