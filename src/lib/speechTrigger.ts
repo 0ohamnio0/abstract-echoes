@@ -1,5 +1,8 @@
 // Real-time Korean speech recognition for trigger word detection
-// Uses Web Speech API (SpeechRecognition)
+// Vosk WASM (로컬). 구글 클라우드 STT·Chrome 버전·--app 키오스크 의존 없이 브라우저 안에서 직접 인식.
+// 모델(82MB)만 Vercel Blob에서 로드 (public, CORS). 첫 로드 후 IndexedDB 캐시.
+
+import { createModel, type Model, type KaldiRecognizer } from 'vosk-browser';
 
 export type TriggerWord = 'love' | 'hello' | 'happy' | 'wow' | 'thanks' | 'sorry' | 'missyou';
 
@@ -8,6 +11,7 @@ export interface TriggerEvent {
   transcript: string;
 }
 
+// SoundCanvas / 디버그 오버레이 호환 유지. Vosk는 항상 로컬이라 processLocally=true 고정.
 export interface SpeechTriggerState {
   status: 'idle' | 'starting' | 'running' | 'error' | 'stopped';
   lastError: string | null;
@@ -29,17 +33,24 @@ const TRIGGER_MAP: { pattern: RegExp; word: TriggerWord }[] = [
   { pattern: /보고\s?싶|그리워|그립/, word: 'missyou' },
 ];
 
+// 82MB 모델은 Vercel 정적 배포 한계로 404 → Vercel Blob에서 서빙 (public, CORS 허용).
+const MODEL_URL = 'https://rtab0znq66rtnyyh.public.blob.vercel-storage.com/vosk-model-small-ko-0.22.zip';
+// Vosk small ko 권장 16kHz. AudioContext가 hint를 못 따르면 실측값 사용.
+const TARGET_SAMPLE_RATE = 16000;
+
 export class SpeechTrigger {
-  private recognition: any = null;
+  private model: Model | null = null;
+  private recognizer: KaldiRecognizer | null = null;
+  private audioContext: AudioContext | null = null;
+  private mediaStream: MediaStream | null = null;
+  private processor: ScriptProcessorNode | null = null;
+  private source: MediaStreamAudioSourceNode | null = null;
   private running = false;
   private onTrigger: ((event: TriggerEvent) => void) | null = null;
   private onStateChange: ((state: SpeechTriggerState) => void) | null = null;
   private cooldowns = new Map<TriggerWord, number>();
   private cooldownMs = 2000;
-  private restartTimer: number = 0;
-  private consecutiveRestarts = 0;
-  private lastStartTime = 0;
-  private hadResult = false;
+  private lastSeenPartial = '';
   private state: SpeechTriggerState = {
     status: 'idle',
     lastError: null,
@@ -47,7 +58,7 @@ export class SpeechTrigger {
     transcriptCount: 0,
     restartCount: 0,
     availability: 'unknown',
-    processLocally: false,
+    processLocally: true,
   };
 
   constructor(
@@ -62,201 +73,138 @@ export class SpeechTrigger {
     this.onStateChange?.({ ...this.state });
   }
 
+  // 마이크 캡처는 즉시 시작, 모델 로드는 병렬. 로드 완료 시점부터 인식 시작.
   start(): boolean {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      console.warn('[SpeechTrigger] Web Speech API not supported');
-      this.state.status = 'error';
-      this.state.lastError = 'api-unsupported';
-      this.emitState();
-      return false;
-    }
-
+    if (this.running) return true;
     this.running = true;
-    this.consecutiveRestarts = 0;
     this.state.status = 'starting';
+    this.state.availability = 'downloading';
+    this.state.lastError = null;
     this.emitState();
-    // Chrome 138+ on-device recognition 시도 (클라우드 STT 우회). 실패 시 클라우드로 폴백
-    void this.prepareOnDevice(SpeechRecognition).finally(() => {
-      if (this.running) this.createRecognition(SpeechRecognition);
-    });
+    void this.init();
     return true;
   }
 
-  private async prepareOnDevice(Ctor: any) {
+  private async init() {
     try {
-      const avail = (Ctor as any).available;
-      const install = (Ctor as any).install;
-      if (typeof avail !== 'function') {
-        this.state.availability = 'unsupported';
-        this.emitState();
-        return;
-      }
-      const opts = { langs: ['ko-KR'], processLocally: true };
-      let availability: string;
-      try {
-        availability = await avail.call(Ctor, opts);
-      } catch {
-        availability = await avail.call(Ctor, { lang: 'ko-KR', processLocally: true });
-      }
-      this.state.availability = (availability as any) ?? 'unknown';
-      this.emitState();
-      console.log('[SpeechTrigger] on-device availability:', availability);
-
-      if (availability === 'downloadable' && typeof install === 'function') {
-        this.state.availability = 'downloading';
-        this.emitState();
+      // 1. 마이크 + 오디오 그래프 (모델 로드와 병렬)
+      this.mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          sampleRate: TARGET_SAMPLE_RATE,
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
+      this.audioContext = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
+      this.source = this.audioContext.createMediaStreamSource(this.mediaStream);
+      // ScriptProcessorNode — deprecated이지만 Chrome에서 안정적, AudioWorklet 부담 회피
+      this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+      const ctxRate = this.audioContext.sampleRate;
+      this.processor.onaudioprocess = (e) => {
+        if (!this.running || !this.recognizer) return; // 모델 로드 전엔 chunk 폐기
+        const ch = e.inputBuffer.getChannelData(0);
+        // ScriptProcessor 버퍼는 재사용되므로 복사 필수
+        const buf = new Float32Array(ch.length);
+        buf.set(ch);
         try {
-          const ok = await install.call(Ctor, opts);
-          this.state.availability = ok ? 'available' : 'unavailable';
-        } catch {
-          try {
-            const ok = await install.call(Ctor, { lang: 'ko-KR', processLocally: true });
-            this.state.availability = ok ? 'available' : 'unavailable';
-          } catch {
-            this.state.availability = 'unavailable';
-          }
+          this.recognizer.acceptWaveformFloat(buf, ctxRate);
+        } catch (err) {
+          console.warn('[SpeechTrigger] acceptWaveformFloat failed:', err);
         }
-        this.emitState();
-        console.log('[SpeechTrigger] install result:', this.state.availability);
-      }
-    } catch (e) {
-      console.warn('[SpeechTrigger] on-device prepare failed:', e);
-      this.state.availability = 'unsupported';
-      this.emitState();
-    }
-  }
+      };
+      this.source.connect(this.processor);
+      this.processor.connect(this.audioContext.destination);
 
-  private createRecognition(SpeechRecognition?: any) {
-    if (!this.running) return;
+      // 2. 모델 로드 (첫 실행 ~1-3s, 이후 IndexedDB 캐시)
+      console.log('[SpeechTrigger] vosk model loading...');
+      const t0 = performance.now();
+      this.model = await createModel(MODEL_URL);
+      console.log(`[SpeechTrigger] vosk loaded in ${Math.round(performance.now() - t0)}ms`);
 
-    const Ctor = SpeechRecognition || (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!Ctor) return;
-
-    // Clean up old instance
-    try { this.recognition?.stop(); } catch {}
-    this.recognition = new Ctor();
-    this.recognition.lang = 'ko-KR';
-    this.recognition.continuous = true;
-    this.recognition.interimResults = true;
-    this.recognition.maxAlternatives = 1;
-    // on-device 가능하면 클라우드 STT 우회 (Chrome 138+ processLocally)
-    if (this.state.availability === 'available' && 'processLocally' in this.recognition) {
-      try {
-        this.recognition.processLocally = true;
-        this.state.processLocally = true;
-        this.emitState();
-      } catch {
-        this.state.processLocally = false;
-        this.emitState();
-      }
-    } else {
-      this.state.processLocally = false;
-      this.emitState();
-    }
-    this.hadResult = false;
-    this.lastStartTime = Date.now();
-
-    this.recognition.onresult = (event: any) => {
-      this.hadResult = true;
-      this.consecutiveRestarts = 0;
-      const now = Date.now();
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript.trim();
-        if (!transcript) continue;
-
-        this.state.transcriptCount++;
-        this.state.lastTranscript = transcript;
-        this.emitState();
-
-        for (const { pattern, word } of TRIGGER_MAP) {
-          if (pattern.test(transcript)) {
-            const lastTime = this.cooldowns.get(word) || 0;
-            if (now - lastTime > this.cooldownMs) {
-              this.cooldowns.set(word, now);
-              this.onTrigger?.({ word, transcript });
-              console.log(`[SpeechTrigger] "${transcript}" → ${word}`);
-            }
-            break;
-          }
-        }
-      }
-    };
-
-    this.recognition.onerror = (event: any) => {
-      if (!this.running) return;
-      if (event.error === 'aborted') return;
-      this.state.lastError = event.error;
-      this.state.status = 'error';
-      this.emitState();
-      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        console.warn('[SpeechTrigger] Permission denied, stopping');
-        this.running = false;
-        return;
-      }
-      console.warn('[SpeechTrigger] error:', event.error);
-    };
-
-    this.recognition.onend = () => {
-      if (!this.running) return;
-
-      const sessionDuration = Date.now() - this.lastStartTime;
-
-      // If session lasted less than 2 seconds and had no results, it's a bad restart
-      if (sessionDuration < 2000 && !this.hadResult) {
-        this.consecutiveRestarts++;
-      } else {
-        this.consecutiveRestarts = 0;
-      }
-
-      // Exponential backoff: give up after too many rapid restarts
-      if (this.consecutiveRestarts >= 5) {
-        console.warn('[SpeechTrigger] Too many rapid restarts, pausing for 30s');
-        this.scheduleRestart(30000);
-        this.consecutiveRestarts = 0;
+      if (!this.running) {
+        this.cleanup();
         return;
       }
 
-      // Normal restart with increasing delay
-      const delay = Math.min(1000 + this.consecutiveRestarts * 1000, 5000);
-      this.scheduleRestart(delay);
-    };
+      this.recognizer = new this.model.KaldiRecognizer(TARGET_SAMPLE_RATE);
 
-    try {
-      this.recognition.start();
+      this.recognizer.on('partialresult', (msg: any) => {
+        const partial: string = msg.result?.partial?.trim() ?? '';
+        if (!partial || partial === this.lastSeenPartial) return;
+        this.lastSeenPartial = partial;
+        this.handleTranscript(partial);
+      });
+
+      this.recognizer.on('result', (msg: any) => {
+        const text: string = msg.result?.text?.trim() ?? '';
+        this.lastSeenPartial = '';
+        if (!text) return;
+        this.handleTranscript(text);
+      });
+
       this.state.status = 'running';
+      this.state.availability = 'available';
       this.emitState();
-      if (this.consecutiveRestarts === 0) {
-        console.log('[SpeechTrigger] Started Korean speech recognition');
-      }
-    } catch {
+      console.log('[SpeechTrigger] running (Vosk local)');
+    } catch (err: any) {
+      console.error('[SpeechTrigger] init failed:', err);
       this.state.status = 'error';
-      this.state.lastError = 'start-throw';
+      this.state.lastError =
+        err?.name === 'NotAllowedError' ? 'not-allowed' : (err?.message ?? 'init-failed');
+      this.state.availability = 'unavailable';
       this.emitState();
-      this.scheduleRestart(3000);
+      this.cleanup();
+      this.running = false;
     }
   }
 
-  private scheduleRestart(delay: number) {
-    clearTimeout(this.restartTimer);
-    if (!this.running) return;
-    this.state.restartCount++;
+  private handleTranscript(transcript: string) {
+    this.state.transcriptCount++;
+    this.state.lastTranscript = transcript;
     this.emitState();
-    this.restartTimer = window.setTimeout(() => {
-      if (this.running) this.createRecognition();
-    }, delay);
+    console.log('[SpeechTrigger:transcript]', transcript);
+    const now = Date.now();
+    for (const { pattern, word } of TRIGGER_MAP) {
+      if (pattern.test(transcript)) {
+        const last = this.cooldowns.get(word) ?? 0;
+        if (now - last > this.cooldownMs) {
+          this.cooldowns.set(word, now);
+          this.onTrigger?.({ word, transcript });
+          console.log(`[SpeechTrigger] "${transcript}" → ${word}`);
+        }
+      }
+    }
   }
 
   stop() {
     this.running = false;
-    clearTimeout(this.restartTimer);
-    try { this.recognition?.stop(); } catch {}
-    this.recognition = null;
+    this.cleanup();
     this.state.status = 'stopped';
     this.emitState();
+    console.log('[SpeechTrigger] stopped');
   }
 
   isRunning(): boolean {
     return this.running;
+  }
+
+  private cleanup() {
+    try { this.processor?.disconnect(); } catch { /* noop */ }
+    try { this.source?.disconnect(); } catch { /* noop */ }
+    try { this.audioContext?.close(); } catch { /* noop */ }
+    try { this.recognizer?.remove(); } catch { /* noop */ }
+    try { this.model?.terminate(); } catch { /* noop */ }
+    this.processor = null;
+    this.source = null;
+    this.audioContext = null;
+    this.recognizer = null;
+    this.model = null;
+    if (this.mediaStream) {
+      for (const track of this.mediaStream.getTracks()) track.stop();
+      this.mediaStream = null;
+    }
+    this.lastSeenPartial = '';
   }
 }
