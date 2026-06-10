@@ -1854,7 +1854,7 @@ export default function SoundCanvas() {
                   style={{ maxWidth: '100%', maxHeight: '50vh' }}
                 />
               )}
-              {/* 흰 footer (16vh) 안 우하단 QR 11vh × 11vh, 비례 기반 (1720×1032 viewport 기준) */}
+              {/* 흰 footer (16vh) 안 우하단 QR 14vh × 14vh, 비례 기반 (1720×1032 viewport 기준) — 6-10 스캔 인식률 개선 (quiet zone + 확대) */}
               <div
                 className="absolute flex items-center"
                 style={{
@@ -1872,16 +1872,16 @@ export default function SoundCanvas() {
                 {!qrData || isUploading ? (
                   <div
                     className="bg-white border border-neutral-300 flex items-center justify-center"
-                    style={{ width: '11vh', height: '11vh', padding: '0.5vh' }}
+                    style={{ width: '14vh', height: '14vh', padding: '0.5vh' }}
                   >
                     <div className="w-10 h-10 border-2 border-neutral-400 border-t-transparent rounded-full animate-spin" />
                   </div>
                 ) : (
                   <div
                     className="bg-white border border-neutral-300"
-                    style={{ width: '11vh', height: '11vh', padding: '0.5vh' }}
+                    style={{ width: '14vh', height: '14vh', padding: '0.5vh' }}
                   >
-                    <QRCodeSVG value={qrData.url} size={256} style={{ width: '100%', height: '100%' }} />
+                    <QRCodeSVG value={qrData.url} size={256} marginSize={3} style={{ width: '100%', height: '100%' }} />
                   </div>
                 )}
               </div>
