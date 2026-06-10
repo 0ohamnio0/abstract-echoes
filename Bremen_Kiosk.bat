@@ -2,6 +2,10 @@
 chcp 65001 > nul
 title Bremen Backyard — Production
 
+REM 부팅 직후 네트워크/바탕화면 준비 대기 (첫 부팅 시 Vosk 모델 다운로드 위해). 필요 시 숫자 조정.
+echo Waiting for network/desktop (30s)...
+timeout /t 30 /nobreak > nul
+
 set "CHROME="
 if exist "C:\Program Files\Google\Chrome\Application\chrome.exe" set "CHROME=C:\Program Files\Google\Chrome\Application\chrome.exe"
 if exist "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" set "CHROME=C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
