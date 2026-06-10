@@ -19,6 +19,7 @@ start "" "%CHROME%" ^
   --app=%URL% ^
   --autoplay-policy=no-user-gesture-required ^
   --use-fake-ui-for-media-stream ^
+  --user-data-dir="%LOCALAPPDATA%\bremen-kiosk-profile" ^
   --no-first-run ^
   --noerrdialogs ^
   --disable-infobars ^
