@@ -181,7 +181,7 @@ type Phase = 'idle' | 'pedalHint' | 'intro' | 'listening' | 'showcase';
 
 // Showcase: 체험 종료 후 LED 전면에 프레임화된 결과를 노출하는 단계
 // (a) 20초 cap 도달 자동 진입  (b) B 버튼 조기 종료
-const SHOWCASE_DURATION_MS = 20_000;
+const SHOWCASE_DURATION_MS = 40_000;
 // 체험(listening) 세션 cap — engine SESSION_CAP_MS와 동일 (20초)
 const SESSION_CAP_SECONDS = 20;
 
