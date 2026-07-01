@@ -110,7 +110,7 @@ class SessionColorTracker {
 }
 
 // ── 타임라인 상수 ─────────────────────────────────────────────────
-const SESSION_CAP_MS = 20_000;   // 20초 — 9차 합의: cap 도달 시 showcase phase 자동 진입 (5-26 30→20 단축)
+const SESSION_CAP_MS = 15_000;   // 15초 — 9차 합의: cap 도달 시 showcase phase 자동 진입 (5-26 30→20, 7-01 20→15 단축)
 const LIVE_PORTION = 0.6;          // 화면 오른쪽 라이브 영역 비율 (최근 3초)
 const LIVE_WINDOW_MS = 3000;      // 라이브 영역에 매핑되는 최근 시간
 const DOWNSAMPLE_PER_FRAME = 8;   // 프레임당 누적 샘플 개수 (waveform에서 다운샘플)

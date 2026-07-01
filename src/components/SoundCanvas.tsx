@@ -200,8 +200,8 @@ type Phase = 'idle' | 'pedalHint' | 'intro' | 'listening' | 'showcase';
 // Showcase: 체험 종료 후 LED 전면에 프레임화된 결과를 노출하는 단계
 // (a) 20초 cap 도달 자동 진입  (b) B 버튼 조기 종료
 const SHOWCASE_DURATION_MS = 25_000;
-// 체험(listening) 세션 cap — engine SESSION_CAP_MS와 동일 (20초)
-const SESSION_CAP_SECONDS = 20;
+// 체험(listening) 세션 cap — engine SESSION_CAP_MS와 동일 (15초)
+const SESSION_CAP_SECONDS = 15;
 
 // 9차 합의 — 단어별 컬러 이스터에그. 체험 중 트리거 단어 인식 시 history의 해당 구간
 // 0.3초 정도만 고유 hue로 칠해지고 세션 기본 hue로 자연 복귀. 인스타 "숨은 색 찾아보세요" 훅.
