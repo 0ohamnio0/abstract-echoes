@@ -14,14 +14,32 @@ import PrintTuningPanel from './PrintTuningPanel';
 const IMGBB_API_KEY = '807140906d6d0c3c9a3b83ec99c22d74';
 const QR_VIEWER_BASE = typeof window !== 'undefined' ? `${window.location.origin}/viewer.html` : '/viewer.html';
 
+// 약한 네트워크(전시장) 대비 — fetch 무한 hang 방지 타임아웃 + 일시적 실패 재시도(선형 백오프).
+const UPLOAD_TIMEOUT_MS = 8_000;
+const UPLOAD_MAX_ATTEMPTS = 3;
+
 async function uploadToImgbb(dataUrl: string): Promise<string> {
   const base64 = dataUrl.split(',')[1];
-  const form = new FormData();
-  form.append('image', base64);
-  const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, { method: 'POST', body: form });
-  if (!res.ok) throw new Error(`imgbb upload failed: ${res.status}`);
-  const json = await res.json();
-  return json.data.url;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt++) {
+    const form = new FormData();
+    form.append('image', base64);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
+    try {
+      const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, { method: 'POST', body: form, signal: controller.signal });
+      if (!res.ok) throw new Error(`imgbb upload failed: ${res.status}`);
+      const json = await res.json();
+      return json.data.url;
+    } catch (e) {
+      lastErr = e;
+      console.warn(`[uploadToImgbb] attempt ${attempt}/${UPLOAD_MAX_ATTEMPTS} failed:`, e);
+      if (attempt < UPLOAD_MAX_ATTEMPTS) await new Promise((r) => setTimeout(r, 1_000 * attempt));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('imgbb upload failed');
 }
 
 interface QrData {
@@ -742,6 +760,10 @@ export default function SoundCanvas() {
     if (!canvasRef.current) return;
     try {
       setPhase('listening');
+      // listening은 항상 freeze 해제 상태로 시작 — resetAll 우회/레이스로 oscFreeze가 남아
+      // 다음 체험이 하얀 화면(파형 미렌더)으로 시작하는 회귀 방지.
+      oscFreezeRef.current = false;
+      setOscFreeze(false);
       cancelAnimationFrame(idleAnimFrameRef.current);
       const analyzer = new AudioAnalyzer();
       analyzer.sensitivity = sensitivity;
@@ -1869,19 +1891,27 @@ export default function SoundCanvas() {
                   <p className="text-neutral-700 text-[10px] tracking-[0.25em] uppercase">Scan to save</p>
                   <p className="text-neutral-500 text-[9px] tracking-[0.2em] mt-0.5">BREMEN BACKYARD</p>
                 </div>
-                {!qrData || isUploading ? (
+                {isUploading ? (
                   <div
                     className="bg-white border border-neutral-300 flex items-center justify-center"
                     style={{ width: '14vh', height: '14vh', padding: '0.5vh' }}
                   >
                     <div className="w-10 h-10 border-2 border-neutral-400 border-t-transparent rounded-full animate-spin" />
                   </div>
-                ) : (
+                ) : qrData ? (
                   <div
                     className="bg-white border border-neutral-300"
                     style={{ width: '14vh', height: '14vh', padding: '0.5vh' }}
                   >
                     <QRCodeSVG value={qrData.url} size={256} marginSize={3} style={{ width: '100%', height: '100%' }} />
+                  </div>
+                ) : (
+                  // 업로드 최종 실패 — 스피너 무한 대신 명시적 안내 (곧 idle 자동 복귀)
+                  <div
+                    className="bg-white border border-neutral-300 flex flex-col items-center justify-center text-center"
+                    style={{ width: '14vh', height: '14vh', padding: '0.5vh' }}
+                  >
+                    <p className="text-neutral-500 text-[9px] leading-tight tracking-[0.15em]">저장 실패<br />네트워크 확인</p>
                   </div>
                 )}
               </div>
