@@ -203,6 +203,40 @@ const SHOWCASE_DURATION_MS = 25_000;
 // 체험(listening) 세션 cap — engine SESSION_CAP_MS와 동일 (15초)
 const SESSION_CAP_SECONDS = 15;
 
+// ?preview=qr 튜닝 패널 기본값 — footer 텍스트/QR/화살표/카운트 조절값 (모두 vh, arrowStroke만 svg 단위)
+const SHOWCASE_TUNE_DEFAULT: Record<string, number> = {
+  headline: 4,      // 영문 헤드라인 크기(vh)
+  korean: 1.9,      // 한글 안내 크기(vh)
+  lineGap: 0.6,     // 한-영 줄간격(vh, 한글↔영문 사이 여백)
+  textDX: 2.5,      // 텍스트 블록 좌우 이동(vh, +오른쪽)
+  textDY: 2.5,      // 텍스트 블록 상하 이동(vh, +아래)
+  gap: 1,           // 텍스트↔QR 간격(vh)
+  qr: 19,           // QR 크기(vh)
+  qrDX: 3,          // QR 좌우 오프셋(vh, +오른쪽)
+  countSize: 3.5,   // 하단 카운트 숫자 크기(vh)
+  arrowStroke: 8,   // 화살표 굵기(px, non-scaling-stroke)
+  arrowW: 24,       // 화살표 폭(vh)
+  arrowH: 7,        // 화살표 높이(vh)
+  arrowTop: 0.5,    // 화살표 상하 위치(vh)
+  arrowRight: 21.5, // 화살표 좌우 위치(vh, 우측 기준)
+};
+const SHOWCASE_TUNE_SLIDERS: { key: string; label: string; min: number; max: number; step: number; unit: string }[] = [
+  { key: 'headline', label: '영문 크기', min: 1.5, max: 6, step: 0.1, unit: 'vh' },
+  { key: 'korean', label: '한글 크기', min: 1, max: 4, step: 0.1, unit: 'vh' },
+  { key: 'lineGap', label: '한-영 줄간격', min: 0, max: 6, step: 0.1, unit: 'vh' },
+  { key: 'textDX', label: '텍스트 좌우', min: -20, max: 10, step: 0.5, unit: 'vh' },
+  { key: 'textDY', label: '텍스트 상하', min: -10, max: 10, step: 0.5, unit: 'vh' },
+  { key: 'gap', label: '텍스트↔QR 간격', min: 0, max: 14, step: 0.5, unit: 'vh' },
+  { key: 'qr', label: 'QR 크기', min: 10, max: 28, step: 0.5, unit: 'vh' },
+  { key: 'qrDX', label: 'QR 좌우 오프셋', min: -20, max: 15, step: 0.5, unit: 'vh' },
+  { key: 'countSize', label: '카운트 숫자 크기', min: 1.5, max: 7, step: 0.1, unit: 'vh' },
+  { key: 'arrowStroke', label: '화살표 굵기', min: 1, max: 12, step: 0.5, unit: '' },
+  { key: 'arrowW', label: '화살표 폭', min: 2, max: 24, step: 0.5, unit: 'vh' },
+  { key: 'arrowH', label: '화살표 높이', min: 1, max: 16, step: 0.5, unit: 'vh' },
+  { key: 'arrowTop', label: '화살표 상하', min: -6, max: 14, step: 0.25, unit: 'vh' },
+  { key: 'arrowRight', label: '화살표 좌우', min: 8, max: 42, step: 0.5, unit: 'vh' },
+];
+
 // 9차 합의 — 단어별 컬러 이스터에그. 체험 중 트리거 단어 인식 시 history의 해당 구간
 // 0.3초 정도만 고유 hue로 칠해지고 세션 기본 hue로 자연 복귀. 인스타 "숨은 색 찾아보세요" 훅.
 const TRIGGER_HUE_MAP: Record<TriggerWord, number> = {
@@ -510,7 +544,11 @@ export default function SoundCanvas() {
     } catch {}
   }, []);
 
-  const [phase, setPhase] = useState<Phase>('idle');
+  // ?preview=qr → QR(showcase) 장면만 계속 노출하는 로컬 확인용 모드로 진입
+  const [phase, setPhase] = useState<Phase>(() => {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === 'qr') return 'showcase';
+    return 'idle';
+  });
   const [introStep, setIntroStep] = useState(0);
   const [introExiting, setIntroExiting] = useState(false);
   // 페달 hint stop-motion — 0/1 = pedal-down/up 2프레임 alternating, 2 = by/oh 로고 중앙 rise 단계
@@ -534,6 +572,11 @@ export default function SoundCanvas() {
   const [isDebugMode] = useState(() => {
     if (typeof window === 'undefined') return false;
     return new URLSearchParams(window.location.search).has('debug');
+  });
+  // ?preview=qr — QR 장면 레이아웃 확인 전용 (더미 QR·placeholder 이미지, 자동 idle 복귀 없음)
+  const [isShowcasePreview] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('preview') === 'qr';
   });
   const [speechState, setSpeechState] = useState<SpeechTriggerState>({
     status: 'idle',
@@ -565,6 +608,11 @@ export default function SoundCanvas() {
   // 5-06 클라 — 체험(listening) 화면 카운트다운 (20→0)
   const [secondsLeft, setSecondsLeft] = useState<number>(SESSION_CAP_SECONDS);
   const secondsTickRef = useRef<number>(0);
+  // 7-01 클라 — showcase(QR 노출) 화면 카운트다운: QR 스캔 가능한 남은 시간(초)
+  const [showcaseSecondsLeft, setShowcaseSecondsLeft] = useState<number>(Math.round(SHOWCASE_DURATION_MS / 1000));
+  const showcaseTickRef = useRef<number>(0);
+  // ?preview=qr 튜닝 슬라이더 값 (footer 텍스트/QR/화살표 조절)
+  const [tune, setTune] = useState<Record<string, number>>(() => ({ ...SHOWCASE_TUNE_DEFAULT }));
   // showcase 오실로스코프 sweep 튜닝 — 패널 슬라이더 상태 + localStorage 영구화
   const [printParams, setPrintParams] = useState<PrintParams>(loadPrintParams);
   const [showPrintPanel, setShowPrintPanel] = useState(false);
@@ -1104,16 +1152,61 @@ export default function SoundCanvas() {
   // 튜닝 패널 열려있으면 showcase 자동 idle 복귀 타이머 정지 (여유롭게 만지게)
   // 닫으면 그 시점부터 20초 타이머 재시작 — 해민이 의식적으로 닫아야 idle로
   useEffect(() => {
-    if (phase !== 'showcase') return;
+    if (phase !== 'showcase') {
+      clearInterval(showcaseTickRef.current);
+      setShowcaseSecondsLeft(Math.round(SHOWCASE_DURATION_MS / 1000));
+      return;
+    }
     if (showPrintPanel) {
       clearTimeout(showcaseTimerRef.current);
+      clearInterval(showcaseTickRef.current);
       return;
     }
     clearTimeout(showcaseTimerRef.current);
-    showcaseTimerRef.current = window.setTimeout(() => {
-      resetAll();
-    }, SHOWCASE_DURATION_MS);
-  }, [phase, showPrintPanel, resetAll]);
+    if (!isShowcasePreview) {
+      showcaseTimerRef.current = window.setTimeout(() => {
+        resetAll();
+      }, SHOWCASE_DURATION_MS);
+    }
+    // QR 스캔 가능한 남은 시간(초) 카운트다운 — 자동 복귀 타이머와 같은 시점에서 시작
+    const startMs = performance.now();
+    const total = Math.round(SHOWCASE_DURATION_MS / 1000);
+    setShowcaseSecondsLeft(total);
+    clearInterval(showcaseTickRef.current);
+    showcaseTickRef.current = window.setInterval(() => {
+      const elapsed = (performance.now() - startMs) / 1000;
+      // 프리뷰 모드는 idle 복귀가 없으므로 카운트다운을 순환시켜 계속 애니메이트
+      const rem = isShowcasePreview ? total - (elapsed % total) : total - elapsed;
+      setShowcaseSecondsLeft(Math.max(0, Math.ceil(rem)));
+    }, 250);
+    return () => clearInterval(showcaseTickRef.current);
+  }, [phase, showPrintPanel, resetAll, isShowcasePreview]);
+
+  // ?preview=qr — 실제 세션 없이 QR 장면 레이아웃만 확인. 더미 QR + 골드 파형 placeholder 주입
+  useEffect(() => {
+    if (!isShowcasePreview) return;
+    setQrData({ url: `${QR_VIEWER_BASE}?img=preview`, countdown: Math.round(SHOWCASE_DURATION_MS / 1000) });
+    const c = document.createElement('canvas');
+    c.width = 1720;
+    c.height = 900;
+    const ctx = c.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#0a0a0f';
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.strokeStyle = '#e0b878';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      for (let x = 0; x <= c.width; x += 3) {
+        const t = x / c.width;
+        const env = 1 - Math.abs(t - 0.5) * 1.4;
+        const y = c.height / 2 + Math.sin(t * 42) * Math.sin(t * 6.3) * 240 * env;
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      setShowcaseImage(c.toDataURL());
+    }
+  }, [isShowcasePreview]);
 
   // 5-06 클라 — 체험(listening) 페이즈 카운트다운: 첫 발화 시점(engine.getSessionStartMs)부터 20→0
   // 발화 전에는 20 그대로 유지 → 사람이 말 시작하면 카운트 시작
@@ -1269,6 +1362,7 @@ export default function SoundCanvas() {
       clearInterval(qrTimerRef.current);
       clearTimeout(showcaseTimerRef.current);
       clearInterval(secondsTickRef.current);
+      clearInterval(showcaseTickRef.current);
       chimeCtxRef.current?.close().catch(() => {});
     };
   }, []);
@@ -1863,7 +1957,7 @@ export default function SoundCanvas() {
               className="relative flex items-center justify-center max-w-[78vw] max-h-full"
               style={{
                 background: '#ffffff',
-                padding: '3vh 4vh 16vh 4vh',
+                padding: '6vh 5vh 22vh 5vh',
                 boxShadow: '0 30px 90px rgba(0,0,0,0.6)',
                 border: '14px solid #000000',
               }}
@@ -1876,51 +1970,115 @@ export default function SoundCanvas() {
                   style={{ maxWidth: '100%', maxHeight: '50vh' }}
                 />
               )}
-              {/* 흰 footer (16vh) 안 우하단 QR 14vh × 14vh, 비례 기반 (1720×1032 viewport 기준) — 6-10 스캔 인식률 개선 (quiet zone + 확대) */}
+              {/* 흰 footer — 좌: 헤드라인 텍스트, 우: QR (7-01 클라 목업 반영: 텍스트 추가·확대 + QR 확대) */}
               <div
-                className="absolute flex items-center"
+                className="absolute flex items-center justify-end"
                 style={{
                   bottom: 0,
+                  left: 0,
                   right: 0,
-                  height: '16vh',
-                  paddingRight: '4vh',
-                  gap: '1.5vh',
+                  height: '22vh',
+                  paddingRight: '5vh',
+                  gap: `${tune.gap}vh`,
                 }}
               >
-                <div className="text-right">
-                  <p className="text-neutral-700 text-[10px] tracking-[0.25em] uppercase">Scan to save</p>
-                  <p className="text-neutral-500 text-[9px] tracking-[0.2em] mt-0.5">BREMEN BACKYARD</p>
+                <div className="text-right" style={{ transform: `translate(${tune.textDX}vh, ${tune.textDY}vh)` }}>
+                  <p className="text-neutral-600" style={{ fontSize: `${tune.korean}vh`, letterSpacing: '0.06em', marginBottom: `${tune.lineGap}vh` }}>핸드폰으로 QR을 스캔해 내 기록을 저장해 보세요</p>
+                  <p className="text-black font-bold leading-[1.05]" style={{ fontSize: `${tune.headline}vh`, letterSpacing: '0.005em' }}>YOUR VOICE, VISUALIZED</p>
+                  <p className="text-black font-bold leading-[1.05]" style={{ fontSize: `${tune.headline}vh`, letterSpacing: '0.005em' }}>SCAN TO KEEP</p>
                 </div>
                 {isUploading ? (
                   <div
-                    className="bg-white border border-neutral-300 flex items-center justify-center"
-                    style={{ width: '14vh', height: '14vh', padding: '0.5vh' }}
+                    className="bg-white flex items-center justify-center shrink-0"
+                    style={{ width: `${tune.qr}vh`, height: `${tune.qr}vh`, transform: `translateX(${tune.qrDX}vh)` }}
                   >
-                    <div className="w-10 h-10 border-2 border-neutral-400 border-t-transparent rounded-full animate-spin" />
+                    <div className="w-12 h-12 border-2 border-neutral-400 border-t-transparent rounded-full animate-spin" />
                   </div>
                 ) : qrData ? (
                   <div
-                    className="bg-white border border-neutral-300"
-                    style={{ width: '14vh', height: '14vh', padding: '0.5vh' }}
+                    className="bg-white shrink-0"
+                    style={{ width: `${tune.qr}vh`, height: `${tune.qr}vh`, transform: `translateX(${tune.qrDX}vh)` }}
                   >
-                    <QRCodeSVG value={qrData.url} size={256} marginSize={3} style={{ width: '100%', height: '100%' }} />
+                    <QRCodeSVG value={qrData.url} size={320} marginSize={2} style={{ width: '100%', height: '100%' }} />
                   </div>
                 ) : (
                   // 업로드 최종 실패 — 스피너 무한 대신 명시적 안내 (곧 idle 자동 복귀)
                   <div
-                    className="bg-white border border-neutral-300 flex flex-col items-center justify-center text-center"
-                    style={{ width: '14vh', height: '14vh', padding: '0.5vh' }}
+                    className="bg-white border border-neutral-300 flex flex-col items-center justify-center text-center shrink-0"
+                    style={{ width: `${tune.qr}vh`, height: `${tune.qr}vh`, transform: `translateX(${tune.qrDX}vh)` }}
                   >
-                    <p className="text-neutral-500 text-[9px] leading-tight tracking-[0.15em]">저장 실패<br />네트워크 확인</p>
+                    <p className="text-neutral-500 text-[1.1vh] leading-tight tracking-[0.15em]">저장 실패<br />네트워크 확인</p>
                   </div>
                 )}
+                {/* QR 지시 꺾인 화살표 (7-01 클라 추가) — 텍스트 위에서 QR 좌상단을 가리킴 */}
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 100 60"
+                  preserveAspectRatio="none"
+                  fill="none"
+                  style={{ position: 'absolute', top: `${tune.arrowTop}vh`, right: `${tune.arrowRight}vh`, width: `${tune.arrowW}vh`, height: `${tune.arrowH}vh`, overflow: 'visible' }}
+                >
+                  <path d="M8 4 V40 H86" stroke="#000000" strokeWidth={tune.arrowStroke} strokeLinecap="square" strokeLinejoin="miter" vectorEffect="non-scaling-stroke" />
+                  <path d="M76 30 L92 40 L76 50" stroke="#000000" strokeWidth={tune.arrowStroke} strokeLinecap="square" strokeLinejoin="miter" vectorEffect="non-scaling-stroke" />
+                </svg>
               </div>
             </div>
           </div>
           <div className="mt-8 text-center">
-            <p className="text-white/80 text-[14px] tracking-[0.25em]">핸드폰으로 QR을 스캔해 내 기록을 저장해 보세요</p>
-            <p className="text-white/40 text-[10px] tracking-[0.25em] mt-1.5">잠시 후 초기 화면으로 돌아갑니다</p>
+            <p
+              className="text-white font-light tabular-nums leading-none"
+              style={{
+                fontSize: `${tune.countSize}vh`,
+                fontFamily: '"acumin-pro", "Helvetica Neue", "Inter", system-ui, sans-serif',
+                letterSpacing: '0.04em',
+              }}
+            >
+              {showcaseSecondsLeft}
+            </p>
+            <p className="text-white/45 text-[13px] tracking-[0.25em] mt-2.5">잠시 후 초기 화면으로 돌아갑니다</p>
           </div>
+
+          {/* ?preview=qr 전용 튜닝 슬라이더 패널 — 텍스트/QR/화살표 크기·위치 라이브 조절 */}
+          {isShowcasePreview && (
+            <div
+              className="fixed top-4 right-4 z-[60] rounded-lg text-white"
+              style={{ width: 268, background: 'rgba(18,18,22,0.94)', padding: '14px 16px', fontFamily: 'system-ui, sans-serif', fontSize: 12, boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}
+            >
+              <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>Showcase 튜닝</span>
+                <button
+                  onClick={() => setTune({ ...SHOWCASE_TUNE_DEFAULT })}
+                  style={{ fontSize: 11, color: '#aaa', background: 'transparent', border: '1px solid #555', borderRadius: 5, padding: '2px 7px', cursor: 'pointer' }}
+                >
+                  리셋
+                </button>
+              </div>
+              {SHOWCASE_TUNE_SLIDERS.map((s) => (
+                <div key={s.key} style={{ marginBottom: 7 }}>
+                  <div className="flex items-center justify-between" style={{ marginBottom: 1 }}>
+                    <span style={{ color: '#ccc' }}>{s.label}</span>
+                    <span style={{ color: '#fff', fontVariantNumeric: 'tabular-nums' }}>{tune[s.key]}{s.unit}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={s.min}
+                    max={s.max}
+                    step={s.step}
+                    value={tune[s.key]}
+                    onChange={(e) => setTune((t) => ({ ...t, [s.key]: parseFloat(e.target.value) }))}
+                    style={{ width: '100%', accentColor: '#e0b878' }}
+                  />
+                </div>
+              ))}
+              <button
+                onClick={() => { void navigator.clipboard?.writeText(JSON.stringify(tune)); }}
+                style={{ width: '100%', marginTop: 6, fontSize: 11, color: '#111', background: '#e0b878', border: 'none', borderRadius: 6, padding: '6px 0', cursor: 'pointer', fontWeight: 600 }}
+              >
+                값 JSON 복사
+              </button>
+              <pre style={{ marginTop: 8, whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: '#8f8', fontSize: 10, lineHeight: 1.35 }}>{JSON.stringify(tune)}</pre>
+            </div>
+          )}
         </div>
       )}
     </div>
