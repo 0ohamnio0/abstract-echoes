@@ -1942,8 +1942,8 @@ export default function SoundCanvas() {
       {phase === 'listening' && (
         <div className="absolute inset-0 pointer-events-none z-20">
           <div className="absolute bottom-14 left-1/2 -translate-x-1/2 text-center px-8">
-            <div className="text-[18px] font-light tracking-[0.2em] text-foreground/90 text-glow">당신의 목소리를 남겨보세요</div>
-            <div className="text-[12px] text-muted-foreground/70 tracking-[0.25em] mt-1">Your voice, your trace</div>
+            <div className="text-[30px] font-light tracking-[0.2em] text-foreground/90 text-glow">당신의 목소리를 남겨보세요</div>
+            <div className="text-[20px] text-muted-foreground/70 tracking-[0.25em] mt-1">Your voice, your trace</div>
           </div>
           {/* 5-06 클라 — 체험 중 카운트다운 (첫 발화 후 30→0)
               Adobe Fonts Acumin Pro Thin, 상단 가운데 정렬, 화면 상단 ~13% */}
@@ -2081,7 +2081,7 @@ export default function SoundCanvas() {
             >
               {showcaseSecondsLeft}
             </p>
-            <p className="text-white/45 text-[13px] tracking-[0.25em] mt-2.5">잠시 후 초기 화면으로 돌아갑니다</p>
+            <p className="text-white/45 text-[22px] tracking-[0.25em] mt-2.5">잠시 후 초기 화면으로 돌아갑니다</p>
           </div>
 
           {/* ?preview=qr 전용 튜닝 슬라이더 패널 — 텍스트/QR/화살표 크기·위치 라이브 조절 */}
