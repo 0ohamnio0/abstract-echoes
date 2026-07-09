@@ -256,6 +256,24 @@ const TRIGGER_PAINT_FRAMES = 18;
 // 거꾸로 색칠. 한 단어("안녕", "사랑해") 폭에 맞춤. 24 × 30 = 720 (live), 8 × 30 = 240 (engine).
 const TRIGGER_BACKWARD_FRAMES = 30;
 
+// 24/7 키오스크 자가치유 — WebGL 컨텍스트 손실(GPU 프로세스 리셋/드라이버 리커버리)은
+// 코드로 복구 불가한 영구 고장(listening이 GL 단독 렌더라 하얀 화면)이므로 페이지 리로드로 회복.
+// 7-09 주간 화이트아웃 재발(oscFreeze 아님, 8일 무중단 후) 대응. 2분 내 재리로드 금지
+// 가드로 GPU 영구 고장 시 리로드 루프 방지 — 가드에 걸리면 종전과 동일하게 .bat 재실행 대기.
+const SELF_HEAL_TS_KEY = 'bremen-self-heal-ts';
+function selfHealReload(reason: string) {
+  try {
+    const last = Number(sessionStorage.getItem(SELF_HEAL_TS_KEY) || 0);
+    if (Date.now() - last < 120_000) {
+      console.error(`[selfHeal] reload skipped (recent reload) — ${reason}`);
+      return;
+    }
+    sessionStorage.setItem(SELF_HEAL_TS_KEY, String(Date.now()));
+  } catch { /* sessionStorage 불가여도 리로드는 수행 */ }
+  console.error(`[selfHeal] reloading — ${reason}`);
+  window.location.reload();
+}
+
 // showcase 오실로스코프 sweep 튜닝 파라미터 (4-29 후속 — 클라 피드백 "더 풍성하게").
 //   - sweep 1회 렌더는 listening 누적 대비 얇아 보임 → passes(누적), 진폭/두께 배율로 보완
 //   - lineSizeMul/intensityMul은 listening shader 값에 곱해서 적용 후 원복 → listening 톤 비영향
@@ -654,6 +672,30 @@ export default function SoundCanvas() {
     return () => window.removeEventListener('resize', update);
   }, []);
 
+  // WebGL 컨텍스트 손실 감지 — 미처리 시 스펙상 영구 손실(같은 캔버스 getContext는 죽은
+  // 컨텍스트를 계속 반환)이라 이후 모든 체험이 하얀 화면. 체험 중이어도 이미 깨진 상태이므로
+  // 즉시 리로드가 낫다 (Vosk 모델은 IndexedDB 캐시라 리로드 비용 수 초).
+  useEffect(() => {
+    const glCanvas = canvasGLRef.current;
+    if (!glCanvas) return;
+    const onLost = () => selfHealReload('webglcontextlost');
+    glCanvas.addEventListener('webglcontextlost', onLost);
+    return () => glCanvas.removeEventListener('webglcontextlost', onLost);
+  }, []);
+
+  // 예방적 일일 리프레시 — 무중단 가동으로 인한 브라우저/GPU 장기 상태 누적 차단 + 새 배포 픽업.
+  // idle && 새벽 4시대 && 가동 1시간 이상일 때만 (리로드 직후엔 uptime 조건이 재발화 방지).
+  useEffect(() => {
+    if (phase !== 'idle') return;
+    const id = window.setInterval(() => {
+      if (new Date().getHours() === 4 && performance.now() > 3_600_000) {
+        console.info('[selfHeal] nightly refresh');
+        window.location.reload();
+      }
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [phase]);
+
   useEffect(() => { oscPreAmpRef.current = oscPreAmp; }, [oscPreAmp]);
   useEffect(() => { oscSwapXYRef.current = oscSwapXY; }, [oscSwapXY]);
   useEffect(() => { oscFreezeRef.current = oscFreeze; }, [oscFreeze]);
@@ -837,6 +879,10 @@ export default function SoundCanvas() {
         } catch (err) {
           console.error('Oscilloscope init failed:', err);
           oscilloscopeRef.current = null;
+          // GL 없이는 listening이 통째로 하얀 화면(2D 캔버스는 display:none) —
+          // 조용히 진행하지 말고 리로드로 자가치유. 이 사이클 방문자는 놓치지만 다음부터 정상.
+          selfHealReload('oscilloscope-init-failed');
+          return;
         }
       }
 
@@ -880,7 +926,7 @@ export default function SoundCanvas() {
       animFrameRef.current = requestAnimationFrame(loop);
     } catch (e) {
       console.error('Microphone error:', e);
-      alert('마이크 접근 권한이 필요합니다.');
+      // alert()는 키오스크 전체를 멈추는 블로킹 다이얼로그 — 무인 운영에선 조용히 idle 복귀.
       setPhase('idle');
       setIntroStep(0);
       setIsActive(false);
