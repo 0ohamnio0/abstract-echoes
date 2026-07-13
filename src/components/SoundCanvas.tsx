@@ -195,13 +195,16 @@ const INTRO_BEAST_CONFIG = [
   },
 ] as const;
 
-type Phase = 'idle' | 'pedalHint' | 'intro' | 'listening' | 'showcase';
+type Phase = 'idle' | 'pedalHint' | 'intro' | 'micGuide' | 'listening' | 'showcase';
 
 // Showcase: 체험 종료 후 LED 전면에 프레임화된 결과를 노출하는 단계
 // (a) 20초 cap 도달 자동 진입  (b) B 버튼 조기 종료
 const SHOWCASE_DURATION_MS = 25_000;
 // 체험(listening) 세션 cap — engine SESSION_CAP_MS와 동일 (15초)
 const SESSION_CAP_SECONDS = 15;
+// intro 종료 후 체험(listening) 진입 전 마이크 안내 페이지 노출 시간 — 클라 요청(3~4초).
+// 화면이 체험으로 바뀔 때 관람객이 "마이크에 발화해야 함"을 인지하도록 하는 안내 단계.
+const MIC_GUIDE_DURATION_MS = 3500;
 
 // ?preview=qr 튜닝 패널 기본값 — footer 텍스트/QR/화살표/카운트 조절값 (모두 vh, arrowStroke만 svg 단위)
 const SHOWCASE_TUNE_DEFAULT: Record<string, number> = {
@@ -991,12 +994,14 @@ export default function SoundCanvas() {
       introTimersRef.current.push(window.setTimeout(() => playBeastAudio(a.src), t));
     });
     introTimersRef.current.push(window.setTimeout(() => setIntroStep(4), 6800));
-    // step4 stack 4.3s 끝난 직후(11100ms)부터 600ms 여지 → 800ms 페이드아웃 → mic
+    // step4 stack 4.3s 끝난 직후(11100ms)부터 600ms 여지 → 800ms 페이드아웃 → 안내 → mic
     introTimersRef.current.push(window.setTimeout(() => setIntroExiting(true), 11700));
+    // intro 페이드아웃 직후 마이크 안내 페이지(micGuide) → MIC_GUIDE_DURATION_MS 후 체험(listening) 진입
+    introTimersRef.current.push(window.setTimeout(() => setPhase('micGuide'), 12500));
     introTimersRef.current.push(
       window.setTimeout(() => {
         void startMic();
-      }, 12500),
+      }, 12500 + MIC_GUIDE_DURATION_MS),
     );
   }, [phase, clearIntroTimers, clearPedalHintTimers, startMic, playBeastAudio]);
 
@@ -1381,7 +1386,7 @@ export default function SoundCanvas() {
       }
       if (e.code === 'Delete' && !e.ctrlKey && !e.shiftKey) {
         e.preventDefault();
-        if (phase === 'intro') {
+        if (phase === 'intro' || phase === 'micGuide') {
           clearIntroTimers();
           setIntroStep(0);
           setPhase('idle');
@@ -1881,6 +1886,19 @@ export default function SoundCanvas() {
                 })}
             </>
           )}
+        </div>
+      )}
+
+      {/* 체험 진입 전 마이크 안내 페이지 (클라 7-13 요청) — Image #2 배치: 텍스트 이미지 중앙 배치
+          (가로 50% / 세로 48% / 폭 34vw). MIC_GUIDE_DURATION_MS 후 listening으로 전환. */}
+      {phase === 'micGuide' && (
+        <div className="absolute inset-0 z-20 bg-black flex items-center justify-center pointer-events-none animate-in fade-in duration-500">
+          <img
+            src="/mic-guide-text.webp"
+            alt="마이크 앞에서 목소리를 남겨보세요. 당신의 목소리가 하나의 그래픽으로 기록됩니다. Speak into the microphone. Your voice will be transformed into a visual."
+            className="absolute left-1/2 top-[48%] -translate-x-1/2 -translate-y-1/2 w-[34vw] max-w-none object-contain select-none"
+            draggable={false}
+          />
         </div>
       )}
 
